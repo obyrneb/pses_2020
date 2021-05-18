@@ -1,0 +1,47 @@
+dem_question, dem_question_e, dem_question_f
+none,Organization,Organisation
+Q83,Supervisor,Superviseur
+D108,Years in Public Service,Années à la fonction publique
+D109,Years at department,Années au ministère
+Q114,Age group,Groupe d'âge
+Q115,Gender,Genre
+Q116,Indigenous,Autochtone
+Q117,Indigenous group,Groupe autochtone
+Q118,Disability,Handicap,
+Q119A,Disability: vision,Handicap : vision
+Q119B,Disability: hearing, Handicap : ouie
+Q119C,Disability: mobility,Handicap : mobilité
+Q119D,Disability: desxterity,Handicap : dextérité
+Q119E,Disability: mental health,Handicap : santé mentale
+Q119F,Disability: sensory,Handicap :  sensoriel
+Q119G,Disability: chronic condition,Handicap : maladie chronique
+Q119H,Disability: cognitive,Handicap : cognitif
+Q119I,Disability: intellectual,Handicap : intelelctual
+Q119J,Disability: other,Handicap : autre
+Q120,Visible minority,Minorité visible
+Q121A,Black,Noir
+Q121B,Chinese,Chinois
+Q121C,Filipino,Philippin
+Q121D,Japanese,Japonais
+Q121E,Korean,Coréen
+Q121F,South Asian/East Indian,Asiatique du Sud/Indien de l'Est
+Q121G,Southeast Asian,Asiatique du Sud-Est
+Q121H,"West Asian, North African or Arab","Asiatique de l'Ouest, Nord-Africain ou Arabe"
+Q121I,Non-White Latin American,
+Q121J,Person of Mixed Origin,
+Q121K,Other Visible Minority,
+Q122,Sexual orientation,Orientation sexuelle
+Q28,Requested flexible hours, A demandé un horaire flexible
+Q85,Managed remote workers,A géré des travailleurs à distance
+Q100,Shift worker, Travail par postes
+Q101,Full- or part-time,Temps plein ou partiel
+Q102,Work situation, Situation professionnelle
+Q103,Used 699, A utilisé 699
+Q104,699 after Nov 2020,699 après nov 2020
+Q105,Employee status,
+D106,Occupational category,Catégorie professionnelle
+Q107,Community, Collectivité
+Q110,Official language, Langue officielle
+Q111,Serve the public,Service au public
+Q112,Province/territory,Province/territorie
+Q113,Bilingual area,Région bilingue
