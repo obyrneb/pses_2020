@@ -27,9 +27,9 @@ Q121E,Korean,Coréen
 Q121F,South Asian/East Indian,Asiatique du Sud/Indien de l'Est
 Q121G,Southeast Asian,Asiatique du Sud-Est
 Q121H,"West Asian, North African or Arab","Asiatique de l'Ouest, Nord-Africain ou Arabe"
-Q121I,Non-White Latin American,
-Q121J,Person of Mixed Origin,
-Q121K,Other Visible Minority,
+Q121I,Non-White Latin American,Latino-Américain non blanc
+Q121J,Person of Mixed Origin,Personnes d'origine mixte
+Q121K,Other Visible Minority,Autre minorité visible
 Q122,Sexual orientation,Orientation sexuelle
 Q106A,Occupatioanl group, Groupe professionnel
 OCCLEVEL,Level,Niveau
@@ -40,10 +40,10 @@ Q101,Full- or part-time,Temps plein ou partiel
 Q102,Work situation, Situation professionnelle
 Q103,Used 699, A utilisé 699
 Q104,699 after Nov 2020,699 après nov 2020
-Q105,Employee status,
+Q105,Employee status,Situation professionnelle
 D106,Occupational category,Catégorie professionnelle
-Q107,Community, Collectivité
-Q110,Official language, Langue officielle
+Q107,Community,Collectivité
+Q110,Official language,Langue officielle
 Q111,Serve the public,Service au public
 Q112,Province/territory,Province/territorie
 Q113,Bilingual area,Région bilingue

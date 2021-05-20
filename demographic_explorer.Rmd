@@ -23,7 +23,8 @@ demq_map <- read.csv(
 ```{r}
 dem_distribution <- pses_2020 %>%
   filter(level1id == 14) %>% 
-  #left_join(demq_map) %>% 
+  drop_na(anscount) %>% 
+  left_join(demq_map) %>% 
   group_by(bycond) %>% 
   filter(anscount == max(anscount, na.rm = TRUE)) %>% 
   ungroup() %>% 
@@ -37,6 +38,33 @@ dem_distribution <- pses_2020 %>%
   arrange(dem_question, bycond)
   
 ```
+
+```{r}
+
+edi_qs <- c("Q40","Q55", "Q60", "Q61", "Q62", "Q67", "Q68", "Q69")
+edi_demqs <- c("Q115","Q116","Q118","Q120","Q121A", "none")
+
+edi_df <- pses_2020 %>% 
+  filter(
+    question %in% edi_qs, 
+    dem_question %in% edi_demqs, 
+    level1id == 14, 
+    surveyr == 2020
+  ) %>% 
+  select(
+    surveyr,
+    dem_question,
+    descrip_e,
+    question,
+    title_e,
+    positive,
+    neutral,
+    negative,
+    agree, 
+    score100
+  )
+```
+
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
 
