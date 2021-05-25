@@ -57,12 +57,12 @@ if(!file.exists("pses_2020.rds")) {
   # Check if the pses_2002 dataframe exists. If not, read each subset and construct it. 
   if (!exists("pses_2020")) {
     
-    ss1_2020 <- read.csv(pses_2020_files$path[1], na.strings = "9999")
-    ss2_2020 <- read.csv(pses_2020_files$path[2], na.strings = "9999")
-    ss3_2020 <- read.csv(pses_2020_files$path[3], na.strings = "9999")
-    ss4_2020 <- read.csv(pses_2020_files$path[4], na.strings = "9999") # Not working for the moment
-    ss5_2020 <- read.csv(pses_2020_files$path[5], na.strings = "9999")
-    ss6_2020 <- read.csv(pses_2020_files$path[6], na.strings = "9999")
+    ss1_2020 <- read.csv(pses_2020_files$path[1], na.strings = "9999", stringsAsFactors = FALSE)
+    ss2_2020 <- read.csv(pses_2020_files$path[2], na.strings = "9999", stringsAsFactors = FALSE)
+    ss3_2020 <- read.csv(pses_2020_files$path[3], na.strings = "9999", stringsAsFactors = FALSE)
+    ss4_2020 <- read.csv(pses_2020_files$path[4], na.strings = "9999", stringsAsFactors = FALSE) # Not working for the moment
+    ss5_2020 <- read.csv(pses_2020_files$path[5], na.strings = "9999", stringsAsFactors = FALSE)
+    ss6_2020 <- read.csv(pses_2020_files$path[6], na.strings = "9999", stringsAsFactors = FALSE)
     
     pses_2020 <- 
       # Bind all subsets together
