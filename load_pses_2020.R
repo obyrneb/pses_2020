@@ -28,14 +28,15 @@ check_file <- function(file_path, file_url) {
 # Build a dataframe with the subset names (ss1, ss2, etc.), URLs, file names and file paths.
 pses_2020_files <- 
   tibble(
-    name = paste0("ss", seq(1:6), "_2020"),
+    name = paste0("ss", seq(1:7), "_2020"),
     url = c(
       "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/83b8d566-8199-40a3-9d87-6b99e9600c5b/download/subset-1-sous-ensemble-1.csv",
       "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/12d848dd-568d-41b6-8a78-09d898541f07/download/subset-2-sous-ensemble-2.csv",
       "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/63f972a8-8bf2-4584-a735-e5d0c07a9eb6/download/subset-3-sous-ensemble-3.csv",
-      "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/39f42f93-8ea4-4de2-b4d2-174b6b31e412/download/subset-4-sous-ensemble-4.csv", # This link seems dead
+      "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/39f42f93-8ea4-4de2-b4d2-174b6b31e412/download/subset-4-sous-ensemble-4.csv",
       "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/56d0ebe0-4353-493f-889a-b9ab36259751/download/subset-5-sous-ensemble-5.csv",
-      "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/b9363aab-8906-45b3-91b5-c91cae5a9327/download/subset-6-sous-ensemble-6.csv"
+      "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/b9363aab-8906-45b3-91b5-c91cae5a9327/download/subset-6-sous-ensemble-6.csv",
+      "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/6e430653-54ee-4e96-8af3-a44c9c2cfea1/download/subset-7-sous-ensemble-7-1.csv"
     ) 
   ) %>% 
   mutate(
@@ -50,19 +51,21 @@ if(!file.exists("pses_2020.rds")) {
   if(!file.exists(pses_2020_files$path[1])) {download.file(pses_2020_files$url[1], pses_2020_files$path[1])}
   if(!file.exists(pses_2020_files$path[2])) {download.file(pses_2020_files$url[2], pses_2020_files$path[2])}
   if(!file.exists(pses_2020_files$path[3])) {download.file(pses_2020_files$url[3], pses_2020_files$path[3])}
-  if(!file.exists(pses_2020_files$path[4])) {download.file(pses_2020_files$url[4], pses_2020_files$path[4])} # Not working for the moment
+  if(!file.exists(pses_2020_files$path[4])) {download.file(pses_2020_files$url[4], pses_2020_files$path[4])}
   if(!file.exists(pses_2020_files$path[5])) {download.file(pses_2020_files$url[5], pses_2020_files$path[5])}
   if(!file.exists(pses_2020_files$path[6])) {download.file(pses_2020_files$url[6], pses_2020_files$path[6])}
+  if(!file.exists(pses_2020_files$path[7])) {download.file(pses_2020_files$url[7], pses_2020_files$path[7])}
   
   # Check if the pses_2002 dataframe exists. If not, read each subset and construct it. 
   if (!exists("pses_2020")) {
     
-    ss1_2020 <- read.csv(pses_2020_files$path[1], na.strings = "9999", stringsAsFactors = FALSE)
-    ss2_2020 <- read.csv(pses_2020_files$path[2], na.strings = "9999", stringsAsFactors = FALSE)
-    ss3_2020 <- read.csv(pses_2020_files$path[3], na.strings = "9999", stringsAsFactors = FALSE)
-    ss4_2020 <- read.csv(pses_2020_files$path[4], na.strings = "9999", stringsAsFactors = FALSE) # Not working for the moment
-    ss5_2020 <- read.csv(pses_2020_files$path[5], na.strings = "9999", stringsAsFactors = FALSE)
-    ss6_2020 <- read.csv(pses_2020_files$path[6], na.strings = "9999", stringsAsFactors = FALSE)
+    ss1_2020 <- read.csv(pses_2020_files$path[1], na.strings = "9999", stringsAsFactors = FALSE) %>% add_column(subset = "ss1")
+    ss2_2020 <- read.csv(pses_2020_files$path[2], na.strings = "9999", stringsAsFactors = FALSE) %>% add_column(subset = "ss2")
+    ss3_2020 <- read.csv(pses_2020_files$path[3], na.strings = "9999", stringsAsFactors = FALSE) %>% add_column(subset = "ss3")
+    ss4_2020 <- read.csv(pses_2020_files$path[4], na.strings = "9999", stringsAsFactors = FALSE) %>% add_column(subset = "ss4")
+    ss5_2020 <- read.csv(pses_2020_files$path[5], na.strings = "9999", stringsAsFactors = FALSE) %>% add_column(subset = "ss5")
+    ss6_2020 <- read.csv(pses_2020_files$path[6], na.strings = "9999", stringsAsFactors = FALSE) %>% add_column(subset = "ss6")
+    ss7_2020 <- read.csv(pses_2020_files$path[7], na.strings = "9999", stringsAsFactors = FALSE) %>% add_column(subset = "ss7")
     
     pses_2020 <- 
       # Bind all subsets together
@@ -70,9 +73,10 @@ if(!file.exists("pses_2020.rds")) {
         ss1_2020,
         ss2_2020,
         ss3_2020,
-        ss4_2020, # Not working for the moment
+        ss4_2020,
         ss5_2020,
-        ss6_2020
+        ss6_2020,
+        ss7_2020
       ) %>% 
       # Convert column names to snake_case
       clean_names() %>%

@@ -9,9 +9,9 @@ source("load_pses_2020.R")
 
 this_dept <- 14
 
-#org_list <- ss5_2019 %>% 
-#  filter(level1id == this_dept) %>% 
-#  distinct(level2id, level3id, level4id, level5id, bycond, descrip_e)
+org_list <- pses_2020 %>% 
+  filter(level1id == this_dept) %>% 
+  distinct(level2id, level3id, level4id, level5id, bycond, descrip_e)
 
 #org_atoms <- bind_rows(
 #  org_list %>% count(level2id) %>% filter(n == 1) %>% select(unitcode = level2id),
@@ -20,9 +20,9 @@ this_dept <- 14
 #  org_list %>% count(level5id) %>% filter(n == 1) %>% select(unitcode = level5id)) %>% 
 #  filter(!unitcode %in% c(0,999))
 
-#org_atoms <- org_list %>% 
-#  filter(level3id == 0, !level2id %in% c(0,999)) %>% 
-#  select(unitcode = level2id)
+org_atoms <- org_list %>% 
+  filter(level3id == 0, !level2id %in% c(0,999)) %>% 
+  select(unitcode = level2id)
 
 #ss5_2019_atoms <- ss5_2019 %>%
 #  filter(level1id == this_dept, bycond != "") %>% 
@@ -30,25 +30,28 @@ this_dept <- 14
 #  right_join(org_atoms, by = "unitcode") %>%
 #  select(-unitcode)
 
-#pses_2020 <- bind_rows(ss1_2019,ss2_2019,ss3_2019,ss4_2019,ss5_2019_atoms) %>% 
-#  rename(indicator_e = INDICATORENG,
-#         INDICATOR_F = INDICATORFRA,
-#         SUBindicator_e = SUBINDICATORENG,
-#         SUBINDICATOR_F = SUBINDICATORFRA)
-
+pses_2020_level2 <- bind_rows(
+  pses_2020 %>% 
+    filter(level1id == this_dept, subset != "ss7"),
+  pses_2020 %>% 
+    filter(level1id == this_dept, subset == "ss7") %>% 
+    mutate(unitcode = word(bycond, 2, sep = " = ") %>% as.numeric()) %>% 
+    right_join(org_atoms, by = "unitcode") %>%
+    select(-unitcode)
+)
 
 demo_map <- read.csv(
   file.path(data_dir,"pses_2020_dem_questions.csv"), 
   encoding = "UTF-8"
 )
 
-#sector_abbr <- ss5_2019 %>% 
-#  filter(level1id == this_dept) %>% 
-#  distinct(descrip_e) %>% 
-#  mutate(
-#    abbr_e = substr(descrip_e, 1, 3),
-#    abbr_f = substr(descrip_e, 1, 3)
-#  )
+sector_abbr <- pses_2020_level2 %>% 
+  filter(level1id == this_dept, dem_question == "org") %>% 
+  distinct(descrip_e) %>% 
+  mutate(
+    abbr_e = word(descrip_e, 1, sep = " - "),
+    abbr_f = word(descrip_e, 1, sep = " - ")
+  )
 
 #------------
 
@@ -69,7 +72,7 @@ get_pvalue <- function(df) {
 
 min_cell <- 5
 
-chisq_data <- pses_2020 %>%
+chisq_data <- pses_2020_level2 %>%
   filter(level1id == as.character(this_dept) & surveyr == 2020) %>%
   #mutate(unitcode = ifelse(startsWith(bycond,"LEVEL"), 
   #                                      word(bycond, 2, sep = " = "), 
@@ -151,7 +154,7 @@ chisq_results <- chisq_data %>%
 #                            neutral_n = "neutral", 
 #                            positive_n = "positive"))
 
-dept_data <- pses_2020 %>%
+dept_data <- pses_2020_level2 %>%
   filter(level1id == as.character(this_dept), surveyr == 2020#, 
          #!endsWith(bycond, c("200","303","304","201","202","999"))
   ) %>%
@@ -165,19 +168,20 @@ dept_data <- pses_2020 %>%
     sentiment,
     prop,anscount
   ) %>%
-  left_join(chisq_results %>% 
-              select(
-                question,
-                dem_question,
-                dem_question_e,
-                bycond,
-                p.value,
-                sentiment,
-                .std.resid,
-                .observed,
-                .expected
-              ),
-            by = c("question","bycond","sentiment"))
+  left_join(
+    chisq_results %>% 
+      select(
+        question,
+        dem_question,
+        dem_question_e,
+        bycond,
+        p.value,
+        sentiment,
+        .std.resid,
+        .observed,
+        .expected
+      ),
+    by = c("question","bycond","sentiment"))
 
 demq_exclude <- c(
   "Q28", # Requested flexible hours
