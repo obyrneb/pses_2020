@@ -12,27 +12,49 @@ library(janitor)
 #----
 # LOAD DATA
 
-main_dir <- getwd()
-data_dir <- "data"
-plot_dir <- "plots"
-ss5File_2018 <- file.path(main_dir,data_dir,"pses2018_ss5.csv")
-ss5File_2019 <- file.path(main_dir,data_dir,"2019_PSES_SAFF_Subset-5_Sous-ensemble-5.csv")
-ss5URL_2018 <- "https://www.canada.ca/content/dam/tbs-sct/documents/datasets/pses-saff/2018/2018_PSES_SAFF_Subset-5_Sous-ensemble-5.csv"
-ss5URL_2019 <- "https://www.canada.ca/content/dam/tbs-sct/documents/datasets/2019_PSES_SAFF_Subset-5_Sous-ensemble-5.csv" 
+# Setting up our directories
+data_dir <- file.path(getwd(), "data")
+plot_dir <- file.path(getwd(), "plots")
+output_dir <- file.path(getwd(), "output")
 
-ifelse(!dir.exists(file.path(main_dir, data_dir)), dir.create(file.path(main_dir, data_dir)), FALSE)
-ifelse(!dir.exists(file.path(main_dir, plot_dir)), dir.create(file.path(main_dir, plot_dir)), FALSE)
+# Create our directories if they don't exist.
+ifelse(!dir.exists(data_dir), dir.create(data_dir), FALSE)
+ifelse(!dir.exists(plot_dir), dir.create(plot_dir), FALSE)
+ifelse(!dir.exists(output_dir), dir.create(output_dir), FALSE)
 
-if(!file.exists(ss5File_2018)) {download.file(ss5URL_2018,ss5File_2018)}
-if(!file.exists(ss5File_2019)) {download.file(ss5URL_2019,ss5File_2019)}
+# There report cards compare two years of PSES data. To avoid hardcoding those
+# years, we will use the convention of "this_year" and "last_year".
+# Set those years below:
+this_y <- 2020
+last_y <- 2019
 
-if(!exists("ss5_2018")) {ss5_2018 <- read.csv(ss5File_2018, na.strings = "9999")}
-if(!exists("ss5_2019")) {ss5_2019 <- read.csv(ss5File_2019, na.strings = "9999")}
+# Setting up our data files
+# For convenience, we are using the default names for these files.
+last_year_file <- file.path(data_dir,"2019_PSES_SAFF_Subset-5_Sous-ensemble-5.csv")
+this_year_file <- file.path(data_dir,"subset-7-sous-ensemble-7-1.csv")
 
-short_qs <- read_excel(file.path(main_dir,data_dir,"pses_2019_short_questions.xlsx")) %>% 
+# Setting the URLs for each file. 
+# We are retrieving the subsets with the orgnization data for the relevant year.
+# In 2019 and previous years, this was subset 5 (ss5). In 2020, it is subset 7.
+last_year_url <- "https://www.canada.ca/content/dam/tbs-sct/documents/datasets/2019_PSES_SAFF_Subset-5_Sous-ensemble-5.csv" 
+this_year_url <- "https://open.canada.ca/data/dataset/4301f4bb-1daa-4b50-afab-d1193b5d2284/resource/6e430653-54ee-4e96-8af3-a44c9c2cfea1/download/subset-7-sous-ensemble-7-1.csv"
+
+# Download files if they don't exist.
+if(!file.exists(last_year_file)) {download.file(last_year_url,last_year_file)}
+if(!file.exists(this_year_file)) {download.file(this_year_url,this_year_file)}
+
+# Load the files into R.
+if(!exists("pses_last_year")) {pses_last_year <- read.csv(last_year_file, na.strings = "9999")}
+if(!exists("pses_this_year")) {pses_this_year <- read.csv(this_year_file, na.strings = "9999")}
+
+# Load a look-up file with shortened PSES questions for this year. Some of the 
+# questions are quite long, so some liberties were taken to shorten them to 
+# about 100 characters in English and 120 characters in French.
+short_qs <- read_excel(file.path(data_dir,"pses_2020_short_questions.xlsx")) %>% 
   select(QUESTION = question, q_short_E = q_short_e, q_short_F =q_short_f)
 
-indicatorMap <- ss5_2019 %>% 
+# Create a look-up table for the question indicators.
+indicatorMap <- pses_this_year %>% 
   distinct(QUESTION, TITLE_E, TITLE_F,
            INDICATORID, INDICATORENG, INDICATORFRA,
            SUBINDICATORID, SUBINDICATORENG, SUBINDICATORFRA) %>% 
@@ -41,12 +63,10 @@ indicatorMap <- ss5_2019 %>%
          SUBINDICATOR_E = SUBINDICATORENG,
          SUBINDICATOR_F = SUBINDICATORFRA)
 
-
-
 #----
 # SELECT DEPARTMENT
 # Run this code to see a list of departments and their LEVEL1ID codes
-distinct(ss5_2019, LEVEL1ID, DEPT_E, DEPT_F)
+distinct(pses_this_year, LEVEL1ID, DEPT_E, DEPT_F)
 
 # Enter your department's LEVEL1ID code here 
 # (e.g., TBS is 26, ESDC is 2, DFO is 5, GAC is 14)
@@ -58,14 +78,88 @@ this_dept_abbr_f <- "AMC"
 #this_dept_abbr_e <- "TBS" 
 #this_dept_abbr_f <- "SCT" 
 
-dept_orgs <- ss5_2019 %>% filter(LEVEL1ID == this_dept) %>% distinct(BYCOND, DESCRIP_E, DESCRIP_F)
+# AVAILABLE ORGANIZATIONS
+# Run the line below to see available organizations under your department
+dept_orgs <- pses_this_year %>% 
+  filter(LEVEL1ID == this_dept) %>% 
+  distinct(BYCOND, DESCRIP_E, DESCRIP_F)
 
+# Unfortunately, both the BYCOND and DESCRIP_E fields tend to change from
+# year to year, which makes them unreliable when trying to match this year 
+# to last year data. One of the reasons for this is the inherent instability
+# of organizations - reorgs and name changes are not uncommon, which makes it
+# excessively difficult to keep track of them year to year. 
+# 
+# There is no easy fix. We need to check this manually and make adjustments.
+# 
+# Run the code below to get all of the matched and mismatched organizations 
+# for your department. This can be used as the basis for a look-up table that
+# will help better bind this year and last year data together.
+full_join(
+  pses_this_year %>% 
+    filter(LEVEL1ID == this_dept) %>% 
+    distinct(BYCOND, DESCRIP_E, DESCRIP_F) %>% 
+    add_column(pses_year = this_y),
+  pses_last_year %>% 
+    filter(LEVEL1ID == this_dept) %>%
+    distinct(BYCOND, DESCRIP_E, DESCRIP_F) %>% 
+    add_column(pses_year = last_y),
+  by = c("DESCRIP_E", "DESCRIP_F")
+)
+
+orgs_this_year <- pses_this_year %>% 
+  filter(LEVEL1ID == this_dept) %>% 
+  select(this_year_bycond = BYCOND, DESCRIP_E, DESCRIP_F) %>% 
+  distinct()
+orgs_last_year <- pses_last_year %>% 
+  filter(LEVEL1ID == this_dept) %>% 
+  select(last_year_bycond = BYCOND, DESCRIP_E, DESCRIP_F) %>% 
+  distinct()
+
+bind_rows(
+  inner_join(orgs_this_year, orgs_last_year) %>% 
+    mutate(
+      last_year_descrip_e = DESCRIP_E, 
+      this_year_descrip_e = DESCRIP_E,
+      last_year_descrip_f = DESCRIP_F, 
+      this_year_descrip_f = DESCRIP_F,
+    ) %>% 
+    select(-DESCRIP_E, -DESCRIP_F),
+  anti_join(orgs_this_year, orgs_last_year) %>% 
+    mutate(
+      this_year_descrip_e = DESCRIP_E,
+      this_year_descrip_f = DESCRIP_F
+    ) %>% 
+    select(-DESCRIP_E, -DESCRIP_F),
+  anti_join(orgs_last_year, orgs_this_year) %>% 
+    mutate(
+      last_year_descrip_e = DESCRIP_E,
+      last_year_descrip_f = DESCRIP_F
+    ) %>% 
+    select(-DESCRIP_E, -DESCRIP_F)
+) %>% 
+  select(
+    this_year_bycond,
+    this_year_descrip_e,
+    this_year_descrip_f,
+    last_year_bycond,
+    last_year_descrip_e,
+    last_year_descrip_f
+  ) %>% 
+  # We write the results into an output file.
+  write_csv(file.path(output_dir,"orgs_this_vs_last_year.csv"))
+
+# Once the missing entries are matched up (manually), we can read in the
+# look-up table.
+org_map <- read_csv(file.path(data_dir,"pses_2020_orgs_lookup.csv"))
+
+# ABBREVIATIONS
 # This next section reads a table where French and English abbreviations
 # have been mapped to English sector names the DESCRIP_E field.
 # You will need to construct your own, as these are not available publicly.
 
-# Use this line to auto-generate abbreviations - not pretty, but useful.
-sectorAbbr <- ss5_2019 %>% 
+# Use this block to auto-generate abbreviations - not pretty, but useful.
+sectorAbbr <- pses_this_year %>% 
   filter(LEVEL1ID %in% c(0,this_dept)) %>% 
   distinct(LEVEL1ID, LEVEL2ID, DESCRIP_E, DESCRIP_F) %>%
   mutate_all(stri_trans_general,"Latin-ASCII") %>% 
@@ -79,10 +173,11 @@ sectorAbbr <- ss5_2019 %>%
                          abbr_F)) %>% 
   select(DESCRIP_E, abbr_E, abbr_F)
 
-# Use this line if you have your own file. It should be in the "datasets" folder.
+# Use this block if you have your own file. It should be in the "datas" folder.
 # It should have 3 columns. The format for the column headers should be:
 # DESCRIP_E | abbr_E | abbr_F
 
+# Treasury Board Secretariat
 if (this_dept == 26) {
   
   my_file <- "tbs_26_abbrs.csv"
@@ -92,9 +187,10 @@ if (this_dept == 26) {
                          col.names = c("DESCRIP_E", "abbr_E", "abbr_F"))
 }
 
+# Global Affairs Canada
 if (this_dept == 14) {
   
-  sectorAbbr <-  ss5_2019 %>% 
+  sectorAbbr <-  pses_this_year %>% 
     filter(LEVEL1ID %in% c(0,this_dept)) %>% 
     distinct(LEVEL1ID, LEVEL2ID, DESCRIP_E, DESCRIP_F) %>%
     mutate_all(stri_trans_general,"Latin-ASCII") %>%
@@ -111,22 +207,38 @@ if (this_dept == 14) {
   
 }
 
-# Create Question Correspondance table.
-# This is derived from the "Question number correspondance" on the website:
+# Create Question Correspondence table. This is what we use to bind this year's
+# and last year's question data across both files.
+# This is derived from the "Question number correspondence" on the website:
 # https://www.canada.ca/en/treasury-board-secretariat/services/innovation/public-service-employee-survey/2019-public-service-employee-survey-pses/2019-public-service-employee-survey-question-number-concordance.html
-QCtable <- read.csv(file.path(main_dir,data_dir,"pses2019_question_corr.csv"), na.strings = "N/A") %>% 
-  mutate(PSES_2018 = ifelse(is.na(PSES_2018),NA,
-                            paste0("Q",
-                                   ifelse(PSES_2018 %in% c("1","2","3","4","5","6","7","8","9"),
-                                          "0",
-                                          ""),
-                                   PSES_2018)),
-         PSES_2019 = ifelse(is.na(PSES_2019),NA,
-                            paste0("Q",
-                                   ifelse(PSES_2019 %in% c("1","2","3","4","5","6","7","8","9")
-                                          ,"0",
-                                          ""),
-                                   PSES_2019)))
+QCtable <- read_tsv(
+  file.path(data_dir,"pses_2020_question_concordance.tsv"), 
+  na = "N/A"
+  ) %>% 
+  mutate(
+    last_year = 
+      ifelse(
+        is.na(`2019 PSES`),
+        NA,
+        paste0("Q", ifelse(`2019 PSES` %in% as.character(c(1:9)),"0",""),`2019 PSES`)
+      ),
+    this_year = 
+      ifelse(
+        is.na(`2020 PSES`),
+        NA,
+        paste0("Q", ifelse(`2020 PSES` %in% as.character(c(1:9)),"0",""),`2020 PSES`)
+      )
+    ) %>% 
+  # PSES 2020 ADJUSTMENT
+  # Some questions were lightly modified from the 2019 PSES, but we will
+  # add them back for comparison. They are all under COMPENSATION.
+  mutate(last_year = case_when(
+    this_year == "Q93" ~ "Q83",
+    this_year == "Q94" ~ "Q84",
+    this_year == "Q95" ~ "Q85",
+    this_year == "Q96" ~ "Q86",
+    TRUE ~ last_year
+  ))
 
 
 #----
@@ -143,65 +255,74 @@ QCtable <- read.csv(file.path(main_dir,data_dir,"pses2019_question_corr.csv"), n
 #arrange(PSES_2019)
 
 # Get PSES 2018 sector-level results and use the lookup table to filter on 2019 questions and create needed fields to merge
-sectors_2018 <- ss5_2018 %>%
+
+sectors_last_year <- pses_last_year %>%
   filter(LEVEL1ID %in% c(0,this_dept)) %>%
   #mutate(QUESTION = substring(QUESTION,3)) %>%
-  left_join(select(QCtable,QUESTION="PSES_2018",Q2019="PSES_2019"), by = "QUESTION") %>%
-  filter(!is.na(Q2019)) %>%
-  select(DESCRIP_E,QUESTION="Q2019",s100_2018="SCORE100",agree_2018="AGREE") %>% 
+  left_join(
+    QCtable %>% select(QUESTION = last_year, Q_this_year = this_year), 
+    by = "QUESTION"
+  ) %>%
+  left_join(
+    org_map %>% select(DESCRIP_E = last_year_descrip_e, this_year_descrip_e),
+    by = "DESCRIP_E"
+  ) %>% 
+  select(-DESCRIP_E, DESCRIP_E = this_year_descrip_e) %>% 
+  drop_na(Q_this_year, DESCRIP_E) %>%
+  select(DESCRIP_E,QUESTION="Q_this_year",s100_last_year="SCORE100",agree_last_year="AGREE") %>% 
   mutate(DESCRIP_E = as.character(DESCRIP_E))
 
 # TBS-specifc adjustment
-sectors_2018 <- sectors_2018 %>% 
+sectors_last_year <- sectors_last_year %>% 
   mutate(DESCRIP_E = case_when(DESCRIP_E == "Chief Information Officer Branch" ~ "Office of the Chief Information Officer",
                                TRUE ~ DESCRIP_E))
 
-sectors_2018 <- bind_rows(
-  sectors_2018,
-  sectors_2018 %>%
+sectors_last_year <- bind_rows(
+  sectors_last_year,
+  sectors_last_year %>%
     filter(DESCRIP_E == "Governance, Planning and Policy Sector") %>% 
     mutate(DESCRIP_E = "Research, Planning and Renewal Sector"),
-  sectors_2018 %>%
+  sectors_last_year %>%
     filter(DESCRIP_E == "Governance, Planning and Policy Sector") %>% 
     mutate(DESCRIP_E = "Workplace Policies and Services Sector"),
-  sectors_2018 %>%
+  sectors_last_year %>%
     filter(DESCRIP_E == "Office of the Chief Information Officer") %>% 
     mutate(DESCRIP_E = "Office of the ADM, Digital and Services Policy"),
-  sectors_2018 %>%
+  sectors_last_year %>%
     filter(DESCRIP_E == "Office of the Chief Information Officer") %>% 
     mutate(DESCRIP_E = "Office of the Chief Technology Officer (CTO)"),
-  sectors_2018 %>%
+  sectors_last_year %>%
     filter(DESCRIP_E == "Office of the Chief Information Officer") %>% 
     mutate(DESCRIP_E = "People and Business Management Services"),
-  sectors_2018 %>%
+  sectors_last_year %>%
     filter(DESCRIP_E == "Human Resources Management Transformation Sector") %>% 
     mutate(DESCRIP_E = "People Management Systems and Processes")
 )
 
 # DFO-specific adjustment
 
-sectors_2018 <- bind_rows(
-  sectors_2018,
-  sectors_2018 %>%
+sectors_last_year <- bind_rows(
+  sectors_last_year,
+  sectors_last_year %>%
     filter(DESCRIP_E == "NCR HQ - Chief Financial Officer, Corporate Planning, Performance, Risk Management and Evaluation") %>% 
     mutate(DESCRIP_E = "NCR HQ - Chief Financial Officer's Office and Corporate Planning, Performance, Risk Management and Evaluation")
 )
 
-# GAC-specifc adjustment
+# GAC-specific adjustment
 
-sectors_2018 <- sectors_2018 %>% 
-  mutate(DESCRIP_E = case_when(
-    DESCRIP_E == "OGM - Asia Pacific Branch" ~ "OGM - Asia Pacific",
-    DESCRIP_E == "WGM - Sub-Saharan Africa Branch" ~ "WGM - Sub-Saharan Africa",
-    DESCRIP_E == "WGM ADM Office / WFD - Pan-Africa Bureau / WWD - West and Central Africa Bureau" ~ "WGM ADM Office / WFD - Pan-Africa / WWD - West and Central Africa",
-    DESCRIP_E == "WED - Southern and Eastern Africa Bureau" ~ "WED - Southern and Eastern Africa",
-    TRUE ~ DESCRIP_E
-  ))
+#sectors_last_year <- sectors_last_year %>% 
+#  mutate(DESCRIP_E = case_when(
+#    DESCRIP_E == "OGM - Asia Pacific Branch" ~ "OGM - Asia Pacific",
+#    DESCRIP_E == "WGM - Sub-Saharan Africa Branch" ~ "WGM - Sub-Saharan Africa",
+#    DESCRIP_E == "WGM ADM Office / WFD - Pan-Africa Bureau / WWD - West and Central Africa Bureau" ~ "WGM ADM Office / WFD - Pan-Africa / WWD - West and Central Africa",
+#    DESCRIP_E == "WED - Southern and Eastern Africa Bureau" ~ "WED - Southern and Eastern Africa",
+#    TRUE ~ DESCRIP_E
+#  ))
 
 
 # Filter PSES 2019 sector-level questions and then merge 2018 data. 
 # Gather allows us to add rows using the existing SURVEYR field.
-question100s <- ss5_2019 %>%
+question100s <- pses_this_year %>%
   filter(LEVEL1ID %in% c(0,this_dept)) %>%
   #left_join(select(indicatorMap,-matches("TITLE_")), by = "QUESTION") %>%
   rename(INDICATOR_E = INDICATORENG,
@@ -210,13 +331,23 @@ question100s <- ss5_2019 %>%
          SUBINDICATOR_F = SUBINDICATORFRA) %>% 
   left_join(sectorAbbr, by = "DESCRIP_E") %>%
   left_join(short_qs, by = "QUESTION") %>% 
-  mutate(unitcode = ifelse(BYCOND == "",
-                           ifelse(LEVEL1ID == this_dept, "dept","PS"),
-                           word(BYCOND, 2, sep = " = "))) %>%
-  left_join(sectors_2018, by = c("QUESTION","DESCRIP_E")) %>%
-  rename(s100_2019 = "SCORE100") %>%
-  gather("SURVEYR","SCORE100",s100_2019,s100_2018) %>%
-  mutate(SURVEYR = substring(SURVEYR,6)) %>%
+  #mutate(unitcode = ifelse(BYCOND == "",
+  #                         ifelse(LEVEL1ID == this_dept, "dept","PS"),
+  #                         word(BYCOND, 2, sep = " = "))) %>%
+  mutate(unitcode = case_when(
+    LEVEL1ID == 0 ~ "PS",
+    LEVEL2ID == 0 ~ "dept",
+    TRUE ~ word(BYCOND, 2, sep = " = ")
+  )) %>% 
+  left_join(sectors_last_year, by = c("QUESTION","DESCRIP_E")) %>%
+  rename(s100_this_year = "SCORE100") %>%
+  gather("SURVEYR","SCORE100",s100_this_year,s100_last_year) %>%
+  mutate(
+    SURVEYR = case_when(
+      SURVEYR == "s100_this_year" ~ this_y,
+      SURVEYR == "s100_last_year" ~ last_y,
+    )
+  ) %>%
   group_by(SURVEYR,unitcode) %>%
   mutate(overall100 = mean(SCORE100, na.rm = TRUE)) %>%
   ungroup()
@@ -231,20 +362,20 @@ score100s <- question100s %>%
 # SET SECTOR - for testing purposes only
 
 
-thisUnitcode <- "219"
-thisAbbr <- "WGM"
+thisUnitcode <- "216"
+thisAbbr <- "OGM"
 
 customName <- NULL
-customAbbr <- "WGM"
+customAbbr <- "OGM"
 
-sectorData <- score100s %>%
-  filter(unitcode %in% c(thisUnitcode,"219")) %>%
-  mutate(abbr_lang = ifelse(unitcode == thisUnitcode, thisAbbr, unitcode))
+#sectorData <- score100s %>%
+#  filter(unitcode %in% c(thisUnitcode,"216")) %>%
+#  mutate(abbr_lang = ifelse(unitcode == thisUnitcode, thisAbbr, unitcode))
 
 thisSectorName_E <- sectorData$DESCRIP_E[[1]]
 #thisSectorName_E <- "Office of the Chief Information Officer"
 
-ttl_E <- paste0("PSES 2019 Report Card - ",thisSectorName_E)
+ttl_E <- paste0("PSES 2020 Report Card - ",thisSectorName_E)
 
 lang = "E"
 #----## CONSTRUCT REPORT CARD FUNCTION
@@ -297,15 +428,15 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   # Get the number of respondents for the sector
   thisAnscount <- question100s %>% 
-    filter(unitcode == thisUnitcode & SURVEYR == 2019) %>% 
+    filter(unitcode == thisUnitcode, SURVEYR == this_y) %>% 
     drop_na(ANSCOUNT) %>% 
     summarise(ANSCOUNT = max(ANSCOUNT)) %>% 
     pull(ANSCOUNT)
   
   # Create the report card title - it includes the number of respondents.
   ttl_lang <- case_when(
-    lang == "E" ~ paste0("PSES 2019 Report Card - ",thisSectorName," (responses = ",thisAnscount,")"),
-    lang == "F" ~ paste0("Bulletin SAFF 2019 - ",thisSectorName," (réponses = ",thisAnscount,")")
+    lang == "E" ~ paste0("PSES ",this_y," Report Card - ",thisSectorName," (responses = ",thisAnscount,")"),
+    lang == "F" ~ paste0("Bulletin SAFF",this_y," - ",thisSectorName," (réponses = ",thisAnscount,")")
   )
   
   #----
@@ -341,20 +472,20 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   )
   
   # Build slopechart
-  slope.plt <- ggplot(sectorData, aes(x = SURVEYR, y = round(indicator100,0), group = INDICATOR_lang)) +
+  slope.plt <- ggplot(sectorData, aes(x = as.character(SURVEYR), y = round(indicator100,0), group = INDICATOR_lang)) +
     facet_grid(.~abbr_lang) + 
     geom_line(aes(color = INDICATOR_lang, linetype = abbr_lang), alpha = 0.6, size = 1) +
     scale_colour_brewer(palette = "Set2") +
-    geom_text_repel(data = sectorData %>% filter(SURVEYR == 2018), 
+    geom_text_repel(data = sectorData %>% filter(SURVEYR == last_y), 
                     aes(label = str_wrap(INDICATOR_lang,10), colour = INDICATOR_lang), 
-                    hjust = 2, 
+                    hjust = 0, 
                     fontface = "bold", 
                     size = 2,
                     nudge_x = -1, 
                     direction = "y") +
-    geom_text_repel(data = sectorData %>% filter(SURVEYR == 2019), 
+    geom_text_repel(data = sectorData %>% filter(SURVEYR == this_y), 
                     aes(label = str_wrap(INDICATOR_lang,10), colour = INDICATOR_lang), 
-                    hjust = -1, 
+                    hjust = 1, 
                     fontface = "bold", 
                     size = 2,
                     nudge_x = 1, 
@@ -382,7 +513,7 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
                             rel_heights = c(1,11.5,0.5))
   
   #----
-  ## RIGHT: Create top negative and postive shifts
+  ## RIGHT: Create top negative and positive shifts
   
   # This is the theme we are going to use for our right-side plots.
   
@@ -420,72 +551,76 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
     select(INDICATORID,INDICATOR_lang,QUESTION,TITLE_lang,q_short_lang,
            unitcode,abbr_lang,DESCRIP_lang,SURVEYR,SCORE100,AGREE) %>%
     spread(SURVEYR,SCORE100) %>%
-    rename(sector_2019 = `2019`, sector_2018 = `2018`) %>% 
-    mutate(sector_1819_delta = sector_2019 - sector_2018) %>% 
+    rename(sector_this_year = last_col(), sector_last_year = last_col(1)) %>% 
+    mutate(sector_delta = sector_this_year - sector_last_year) %>% 
     left_join(question100s %>% 
-                filter(unitcode == "dept", SURVEYR == 2019) %>%
-                distinct(QUESTION, dept_2019 = SCORE100),
+                filter(unitcode == "dept", SURVEYR == this_y) %>%
+                distinct(QUESTION, dept_this_year = SCORE100),
               by = "QUESTION") %>%
     left_join(question100s %>% 
-                filter(unitcode == "dept", SURVEYR == 2018) %>%
-                distinct(QUESTION, dept_2018 = SCORE100),
+                filter(unitcode == "dept", SURVEYR == last_y) %>%
+                distinct(QUESTION, dept_last_year = SCORE100),
               by = "QUESTION") %>%
-    mutate(dept_delta = sector_2019 - dept_2019,
-           dept_1819_delta = dept_2019 - dept_2018) %>% 
+    mutate(dept_sector_delta = sector_this_year - dept_this_year,
+           dept_delta = dept_this_year - dept_last_year) %>% 
     left_join(question100s %>% 
-                filter(LEVEL1ID == 0, SURVEYR == 2019) %>%
-                distinct(QUESTION, ps_2019 = SCORE100),
+                filter(LEVEL1ID == 0, SURVEYR == this_y) %>%
+                distinct(QUESTION, ps_this_year = SCORE100),
               by = "QUESTION")
   
   # Get the 5 best and 5 worst deltas from 2018-2019
   surveyr_deltas <- bind_rows(
-    sectorDeltas2 %>% filter(sector_1819_delta > 0) %>% arrange(desc(sector_1819_delta),sector_2019) %>% slice(1:5),
-    sectorDeltas2 %>% filter(sector_1819_delta < 0) %>% arrange(sector_1819_delta,sector_2019) %>% slice(1:5)) %>%
+    sectorDeltas2 %>% filter(sector_delta > 0) %>% arrange(desc(sector_delta),sector_this_year) %>% slice(1:5),
+    sectorDeltas2 %>% filter(sector_delta < 0) %>% arrange(sector_delta,sector_this_year) %>% slice(1:5)) %>%
     mutate(ind_question = paste0(INDICATOR_lang, ": ",QUESTION, ". ", q_short_lang) %>% 
-             str_wrap(width = 60) %>% fct_reorder(sector_1819_delta),
-           hjust_2018 = ifelse(sector_1819_delta < 0, -0.3, 1.3),
-           hjust_2019 = ifelse(sector_1819_delta < 0, 1.3, -0.3),
-           dir_label = ifelse(sector_1819_delta < 0,
-                              "2019 <<< 2018",
-                              "2018 >>> 2019"),
-           sector_dir = case_when(sector_1819_delta == 0 ~ "stable",
-                                  sector_1819_delta > 0 ~ "increase",
-                                  sector_1819_delta < 0 ~ "decrease"),
-           dept_dir = case_when(dept_1819_delta == 0 ~ "stable",
-                                dept_1819_delta > 0 ~ "increase",
-                                dept_1819_delta < 0 ~ "decrease")) %>%
-    arrange(sector_1819_delta)
+             str_wrap(width = 60) %>% fct_reorder(sector_delta),
+           hjust_last_year = ifelse(sector_delta < 0, -0.3, 1.3),
+           hjust_this_year = ifelse(sector_delta < 0, 1.3, -0.3),
+           dir_label = ifelse(
+             sector_delta < 0,
+             paste0(this_y, " <<< ", last_y),#"2019 <<< 2018",
+             paste0(last_y, " >>> ", this_y)#"2018 >>> 2019"
+           ),
+           sector_dir = case_when(sector_delta == 0 ~ "stable",
+                                  sector_delta > 0 ~ "increase",
+                                  sector_delta < 0 ~ "decrease"),
+           dept_dir = case_when(dept_delta == 0 ~ "stable",
+                                dept_delta > 0 ~ "increase",
+                                dept_delta < 0 ~ "decrease")) %>%
+    arrange(sector_delta)
   
   offset <- -0.3
+  
+  delta_clrs <- c(increase = "#4393c3", stable = "#d9d9d9", decrease = "#d6604d")
   
   surveyr_deltas.plt <- ggplot(surveyr_deltas) +
     #facet_wrap(vars(dir_label %>% fct_rev()), scales = "free", ncol = 1) +
     #facet_grid(rows = vars(direction), scales = "free_y") +
     #geom_point(aes(x = ind_question, y = sector_2019, colour = sector_dir)) +
-    geom_segment(aes(x = ind_question, xend = ind_question, y = sector_2018, yend = sector_2019,
+    geom_segment(aes(x = ind_question, xend = ind_question, y = sector_last_year, yend = sector_this_year,
                      colour = sector_dir),
                  arrow = arrow(angle = 45, length = unit(3, "points"), type = "closed"), linejoin = "mitre") +
-    geom_segment(aes(x = ind_question, xend = ind_question, y = dept_2018, yend = dept_2019,
+    geom_segment(aes(x = ind_question, xend = ind_question, y = dept_last_year, yend = dept_this_year,
                      colour = dept_dir),
                  position = position_nudge(x = offset),
                  arrow = arrow(angle = 45, length = unit(3, "points"), type = "open"), linejoin = "mitre") +
-    geom_point(aes(x = ind_question, y = dept_2018, shape = "b_shp"), colour = "grey50",
+    geom_point(aes(x = ind_question, y = dept_last_year, shape = "b_shp"), colour = "grey50",
                fill = "white", position = position_nudge(x = offset)) +
-    geom_point(aes(x = ind_question, y = sector_2018, shape = "a_shp"), colour = "grey50") +
+    geom_point(aes(x = ind_question, y = sector_last_year, shape = "a_shp"), colour = "grey50") +
     #geom_point(aes(x = ind_question, y = dept_2018, colour = dept_1819_delta),
     #           shape = 124, colour = "grey60", size = 2, position = position_nudge(x = offset)) +
-    geom_text(aes(label = sector_2018, x = ind_question, y = sector_2018, hjust = hjust_2018),
+    geom_text(aes(label = sector_last_year, x = ind_question, y = sector_last_year, hjust = hjust_last_year),
               size = 3, colour = "grey40", fontface = "plain", vjust = 0.5) +
-    geom_text(aes(label = sector_2019, x = ind_question, y = sector_2019,
-                  colour = sector_dir, hjust = hjust_2019),
+    geom_text(aes(label = sector_this_year, x = ind_question, y = sector_this_year,
+                  colour = sector_dir, hjust = hjust_this_year),
               size = 3, fontface = "bold", vjust = 0.5) +
-    geom_label(aes(label = ifelse(sector_1819_delta > 0,
-                                  paste0("+",sector_1819_delta),
-                                  sector_1819_delta),
+    geom_label(aes(label = ifelse(sector_delta > 0,
+                                  paste0("+",sector_delta),
+                                  sector_delta),
                    x = ind_question, y = 0, colour = sector_dir), alpha = 0.7,
                size = 3, fontface = "bold", hjust = 0, vjust = 0.5, label.size = NA, fill = "white") +
     coord_flip() +
-    scale_colour_manual(values = c(increase = "#80b1d3", stable = "#d9d9d9", decrease = "#fb8072"),
+    scale_colour_manual(values = delta_clrs,
                         guide = FALSE) +
     scale_shape_manual(name = NULL, 
                        values = c(a_shp = 19, b_shp = 21),
@@ -504,20 +639,21 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   # Get the 5 biggest positive and negative differences from the TBS average
   dept_deltas <- bind_rows(
-    sectorDeltas2 %>% filter(dept_delta > 0) %>% arrange(desc(dept_delta),sector_2019) %>% slice(1:5),
-    sectorDeltas2 %>% filter(dept_delta < 0) %>% arrange(dept_delta,sector_2019) %>% slice(1:5)) %>%
+    sectorDeltas2 %>% filter(dept_sector_delta > 0) %>% arrange(desc(dept_sector_delta),sector_this_year) %>% slice(1:5),
+    sectorDeltas2 %>% filter(dept_sector_delta < 0) %>% arrange(dept_sector_delta,sector_this_year) %>% slice(1:5)
+  ) %>%
     left_join(short_qs, by = "QUESTION") %>% 
     mutate(ind_question = paste0(INDICATOR_lang, ": ",QUESTION, ". ", q_short_lang) %>%
-             str_wrap(width = 60) %>% fct_reorder(dept_delta),
-           hjust_dept = ifelse(dept_delta < 0, -0.3, 1.3),
-           hjust_sector = ifelse(dept_delta < 0, 1.3, -0.3),
-           dir_label = ifelse(dept_delta < 0,
+             str_wrap(width = 60) %>% fct_reorder(dept_sector_delta),
+           hjust_dept = ifelse(dept_sector_delta < 0, -0.3, 1.3),
+           hjust_sector = ifelse(dept_sector_delta < 0, 1.3, -0.3),
+           dir_label = ifelse(dept_sector_delta < 0,
                               paste0(abbr_lang," <<< ",dept_abbr),
                               paste0(dept_abbr," >>> ",abbr_lang)),
-           direction = case_when(dept_delta == 0 ~ "stable",
-                                 dept_delta > 0 ~ "increase",
-                                 dept_delta < 0 ~ "decrease")) %>% 
-    arrange(dept_delta)
+           direction = case_when(dept_sector_delta == 0 ~ "stable",
+                                 dept_sector_delta > 0 ~ "increase",
+                                 dept_sector_delta < 0 ~ "decrease")) %>% 
+    arrange(dept_sector_delta)
   
   other_sectors <- question100s %>% 
     right_join(dept_deltas %>% distinct(QUESTION,ind_question), by = "QUESTION") %>% 
@@ -533,28 +669,28 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
     geom_point(data = other_sectors, aes(x = ind_question, y = SCORE100, shape = "d_shp"),
                position = position_jitter(height = 0, width = 0.1),
                colour = "grey80", alpha = 0.4) +
-    geom_segment(aes(x = ind_question, xend = ind_question, y = dept_2019, yend = sector_2019, colour = direction),
+    geom_segment(aes(x = ind_question, xend = ind_question, y = dept_this_year, yend = sector_this_year, colour = direction),
                  linetype = 3) +
     #geom_errorbar(aes(x = ind_question, ymin = dept_2019, ymax = dept_2019),
     #              colour = "grey60", linetype = 3, width = 0.8) +
-    geom_point(aes(x = ind_question, y = ps_2019, shape = "c_shp"),
+    geom_point(aes(x = ind_question, y = ps_this_year, shape = "c_shp"),
                position = position_nudge(offset),
                colour = "#bc80bd") +
-    geom_point(aes(x = ind_question, y = dept_2019, colour = direction, shape = "b_shp"),
+    geom_point(aes(x = ind_question, y = dept_this_year, colour = direction, shape = "b_shp"),
                colour = "grey50", fill = "white") +
-    geom_point(aes(x = ind_question, y = sector_2019, colour = direction, shape = "a_shp")) +
-    geom_text(aes(label = dept_2019, x = ind_question, y = dept_2019, hjust = hjust_dept),
+    geom_point(aes(x = ind_question, y = sector_this_year, colour = direction, shape = "a_shp")) +
+    geom_text(aes(label = dept_this_year, x = ind_question, y = dept_this_year, hjust = hjust_dept),
               size = 3, colour = "grey40", fontface = "plain", vjust = 0.5) +
-    geom_text(aes(label = sector_2019, x = ind_question, y = sector_2019, colour = direction,
+    geom_text(aes(label = sector_this_year, x = ind_question, y = sector_this_year, colour = direction,
                   hjust = hjust_sector),
               size = 3, fontface = "bold", vjust = 0.5) +
-    geom_label(aes(label = ifelse(dept_delta > 0,
-                                  paste0("+",dept_delta),
-                                  dept_delta),
+    geom_label(aes(label = ifelse(dept_sector_delta > 0,
+                                  paste0("+",dept_sector_delta),
+                                  dept_sector_delta),
                    x = ind_question, y = 0, colour = direction), alpha = 0.7,
                size = 3, fontface = "bold", hjust = 0, vjust = 0.5, label.size = NA, fill = "white") +
     coord_flip() +
-    scale_colour_manual(values = c(increase = "#80b1d3", stable = "#d9d9d9", decrease = "#fb8072"),
+    scale_colour_manual(values = delta_clrs,
                         guide = FALSE) +
     scale_shape_manual(name = NULL, 
                        values = c(a_shp = 19, b_shp = 21, c_shp  = 17, d_shp = 18),
@@ -582,13 +718,14 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
     select(INDICATORID,INDICATOR_lang,QUESTION,TITLE_lang,
            unitcode,abbr_lang,DESCRIP_lang,SURVEYR,SCORE100,AGREE) %>%
     spread(SURVEYR,SCORE100) %>%
-    mutate(delta = `2019` - `2018`)
+    rename(this_year = last_col(), last_year = last_col(1)) %>% 
+    mutate(delta = this_year - last_year)
   
   offset2 <- -0.3
   
   ## REVISED- used
   best10deltas <- filter(sectorDeltas, unitcode == thisUnitcode) %>%
-    arrange(desc(delta),`2019`) %>% slice(1:10) %>% select(QUESTION,delta,`2019`)
+    arrange(desc(delta),this_year) %>% slice(1:10) %>% select(QUESTION,delta,this_year)
   
   bestData2 <- sectorDeltas %>%
     inner_join(select(best10deltas,QUESTION), by = "QUESTION") %>%
@@ -597,31 +734,31 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
     )) %>%
     mutate(ind_question = str_wrap(ind_question, width = 60)) %>% 
     mutate(org_level = ifelse(unitcode == "dept","dept","sector")) %>% 
-    select(ind_question,org_level, y2018 = `2018`, y2019 = `2019`, delta) %>% 
-    pivot_wider(names_from = org_level, values_from = c(y2018,y2019,delta)) %>% 
+    select(ind_question,org_level, last_year, this_year, delta) %>% 
+    pivot_wider(names_from = org_level, values_from = c(last_year, this_year, delta)) %>% 
     #nest(y2018, y2019, delta, .key = "value_col") %>%
     #spread(key = org_level, value = value_col) %>% 
     #unnest(sector,dept, .sep = "_") %>% 
     #mutate(ind_question = fct_reorder(ind_question, delta_sector, .desc = FALSE))
-    arrange(delta_sector, y2018_sector) %>% 
+    arrange(delta_sector, last_year_sector) %>% 
     mutate(ind_question = fct_inorder(ind_question))
   
   best2.plt <- ggplot(data = bestData2, x = ind_question) +
-    geom_col(aes(x = ind_question, y = y2019_sector), fill = "#f7f7f7", width = 0.8) +
-    geom_errorbar(aes(x = ind_question, ymin = y2018_sector, ymax = y2018_sector), colour = "grey60", linetype = 3) +
-    geom_errorbar(aes(x = ind_question, ymin = y2019_sector, ymax = y2019_sector, colour = delta_sector)) +
+    geom_col(aes(x = ind_question, y = this_year_sector), fill = "#f7f7f7", width = 0.8) +
+    geom_errorbar(aes(x = ind_question, ymin = last_year_sector, ymax = last_year_sector), colour = "grey60", linetype = 3) +
+    geom_errorbar(aes(x = ind_question, ymin = this_year_sector, ymax = this_year_sector, colour = delta_sector)) +
     geom_segment(aes(x = as.numeric(ind_question) + offset2, xend = as.numeric(ind_question) + offset2,
-                     y = y2018_dept, yend = y2019_dept, colour = delta_dept),
+                     y = last_year_dept, yend = this_year_dept, colour = delta_dept),
                  position = position_dodge(width = 1)) +
-    geom_point(aes(x = as.numeric(ind_question) + offset2, y = y2018_dept, colour = delta_dept),
+    geom_point(aes(x = as.numeric(ind_question) + offset2, y = last_year_dept, colour = delta_dept),
                position = position_dodge(width = 1), shape = 21, fill = "white") +
-    geom_point(aes(x = as.numeric(ind_question) + offset2, y = y2019_dept, colour = delta_dept),
+    geom_point(aes(x = as.numeric(ind_question) + offset2, y = this_year_dept, colour = delta_dept),
                position = position_dodge(width = 1)) +
-    geom_point(aes(x = ind_question, y = (y2018_sector + delta_sector/2),
+    geom_point(aes(x = ind_question, y = (last_year_sector + delta_sector/2),
                    colour = delta_sector), shape = 62, size = 2) +
-    geom_text(aes(label = y2018_sector, x = ind_question, y = y2018_sector),
+    geom_text(aes(label = last_year_sector, x = ind_question, y = last_year_sector),
               size = 3, colour = "grey30", fontface = "plain", hjust = 1.3, vjust = 0.5) +
-    geom_text(aes(label = y2019_sector, x = ind_question, y = y2019_sector),
+    geom_text(aes(label = this_year_sector, x = ind_question, y = this_year_sector),
               size = 3, colour = "grey30", fontface = "bold", hjust = -0.3, vjust = 0.5) +
     geom_text(aes(label = paste0("+",delta_sector), x = ind_question, y = 0, colour = delta_sector),
               size = 3, fontface = "bold", hjust = 0, vjust = 0.5) +
@@ -634,7 +771,7 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   ## REVISED - used
   worst10deltas <- filter(sectorDeltas, unitcode == thisUnitcode) %>%
-    arrange(delta,`2019`) %>% slice(1:10) %>% select(QUESTION,delta,`2019`)
+    arrange(delta,this_year) %>% slice(1:10) %>% select(QUESTION,delta,this_year)
   
   worstData2 <- sectorDeltas %>%
     inner_join(select(worst10deltas,QUESTION), by = "QUESTION") %>%
@@ -643,31 +780,31 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
     )) %>%
     mutate(ind_question = str_wrap(ind_question, width = 60)) %>% 
     mutate(org_level = ifelse(unitcode == "dept","dept","sector")) %>% 
-    select(ind_question,org_level, y2018 = `2018`, y2019 = `2019`, delta) %>%
-    pivot_wider(names_from = org_level, values_from = c(y2018,y2019,delta)) %>%
+    select(ind_question,org_level, last_year, this_year, delta) %>%
+    pivot_wider(names_from = org_level, values_from = c(last_year, this_year, delta)) %>%
     #nest(y2017, y2018, delta, .key = "value_col") %>%
     #spread(key = org_level, value = value_col) %>% 
     #unnest(sector,dept, .sep = "_") %>% 
     #mutate(ind_question = fct_reorder(ind_question, delta_sector, .desc = TRUE))
-    arrange(desc(delta_sector), desc(y2019_sector)) %>% 
+    arrange(desc(delta_sector), desc(this_year_sector)) %>% 
     mutate(ind_question = fct_inorder(ind_question))
   
   worst2.plt <- ggplot(data = worstData2, x = ind_question) +
-    geom_col(aes(x = ind_question, y = y2019_sector), fill = "#f7f7f7", width = 0.8) +
-    geom_errorbar(aes(x = ind_question, ymin = y2018_sector, ymax = y2018_sector), colour = "grey60", linetype = 3) +
-    geom_errorbar(aes(x = ind_question, ymin = y2019_sector, ymax = y2019_sector, colour = delta_sector)) +
+    geom_col(aes(x = ind_question, y = this_year_sector), fill = "#f7f7f7", width = 0.8) +
+    geom_errorbar(aes(x = ind_question, ymin = last_year_sector, ymax = last_year_sector), colour = "grey60", linetype = 3) +
+    geom_errorbar(aes(x = ind_question, ymin = this_year_sector, ymax = this_year_sector, colour = delta_sector)) +
     geom_segment(aes(x = as.numeric(ind_question) + offset2, xend = as.numeric(ind_question) + offset2,
-                     y = y2018_dept, yend = y2019_dept, colour = delta_dept),
+                     y = last_year_dept, yend = this_year_dept, colour = delta_dept),
                  position = position_dodge(width = 1)) +
-    geom_point(aes(x = as.numeric(ind_question) + offset2, y = y2018_dept, colour = delta_dept),
+    geom_point(aes(x = as.numeric(ind_question) + offset2, y = last_year_dept, colour = delta_dept),
                position = position_dodge(width = 1), shape = 21, fill = "white") +
-    geom_point(aes(x = as.numeric(ind_question) + offset2, y = y2019_dept, colour = delta_dept),
+    geom_point(aes(x = as.numeric(ind_question) + offset2, y = this_year_dept, colour = delta_dept),
                position = position_dodge(width = 1)) +
-    geom_point(aes(x = ind_question, y = (y2018_sector + delta_sector/2),
+    geom_point(aes(x = ind_question, y = (last_year_sector + delta_sector/2),
                    colour = delta_sector), shape = 60, size = 2) +
-    geom_text(aes(label = y2018_sector, x = ind_question, y = y2018_sector),
+    geom_text(aes(label = last_year_sector, x = ind_question, y = last_year_sector),
               size = 3, colour = "grey30", fontface = "plain", hjust = -0.3, vjust = 0.5) +
-    geom_text(aes(label = y2019_sector, x = ind_question, y = y2019_sector),
+    geom_text(aes(label = this_year_sector, x = ind_question, y = this_year_sector),
               size = 3, colour = "grey30", fontface = "bold", hjust = 1.3, vjust = 0.5) +
     geom_text(aes(label = paste0(delta_sector), x = ind_question, y = 0, colour = delta_sector),
               size = 3, fontface = "bold", hjust = 0, vjust = 0.5) +
@@ -680,26 +817,26 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   # Create chart titles
   best.ttl_lang <- case_when(
-    lang == "E" ~ paste0("Top 10 Positive Shifts for ",thisAbbr," from 2018 to 2019 (Score 100)"),
-    lang == "F" ~ paste0("Les 10 changements les plus positifs pour ",thisAbbr," de 2018 à 2019 (Score 100)"))
+    lang == "E" ~ paste0("Top 10 Positive Shifts for ",thisAbbr," from ", last_y," to ", this_y," (Score 100)"),
+    lang == "F" ~ paste0("Les 10 changements les plus positifs pour ",thisAbbr," de ", last_y," à ", this_y," (Score 100)"))
   best.ttl <- textGrob(best.ttl_lang,
                        gp = gpar(fontsize = 10, fontface = "bold", col = "grey30"))
   
   worst.ttl_lang <- case_when(
-    lang == "E" ~ paste0("Top 10 Negative Shifts for ",thisAbbr," from 2018 to 2019 (Score 100)"),
-    lang == "F" ~ paste0("Les 10 changements les plus négatifs pour ",thisAbbr," de 2018 à 2019 (Score 100)"))
+    lang == "E" ~ paste0("Top 10 Negative Shifts for ",thisAbbr," from ", last_y," to ", this_y," (Score 100)"),
+    lang == "F" ~ paste0("Les 10 changements les plus négatifs pour ",thisAbbr," de ", last_y," à ", this_y," (Score 100)"))
   worst.ttl <- textGrob(worst.ttl_lang,
                         gp = gpar(fontsize = 10, fontface = "bold", col = "grey30"))
   
   surveyr_deltas.ttl_lang <- case_when(
-    lang == "E" ~ paste0("Top 10 Most Extreme Shifts for ",thisAbbr," from 2018 to 2019 (Score 100)"),
-    lang == "F" ~ paste0("Les 10 changements les plus extrêmes pour ",thisAbbr," de 2018 à 2019 (Score 100)"))
+    lang == "E" ~ paste0("Top 10 Most Extreme Shifts for ",thisAbbr," from ", last_y," to ", this_y," (Score 100)"),
+    lang == "F" ~ paste0("Les 10 changements les plus extrêmes pour ",thisAbbr," de ", last_y," à ", this_y," (Score 100)"))
   surveyr_deltas.ttl <- textGrob(surveyr_deltas.ttl_lang,
                                  gp = gpar(fontsize = 10, fontface = "bold", col = "grey30"))
   
   dept_deltas.ttl_lang <- case_when(
-    lang == "E" ~ paste0("Top 10 Largest Differences between ",dept_abbr, " and ",thisAbbr," for 2019 (Score 100)"),
-    lang == "F" ~ paste0("Les 10 différences les plus grandes entre ",dept_abbr," et ",thisAbbr," pour 2019 (Score 100)"))
+    lang == "E" ~ paste0("Top 10 Largest Differences between ",dept_abbr, " and ",thisAbbr," for ",this_y," (Score 100)"),
+    lang == "F" ~ paste0("Les 10 différences les plus grandes entre ",dept_abbr," et ",thisAbbr," pour ",this_y," (Score 100)"))
   dept_deltas.ttl <- textGrob(dept_deltas.ttl_lang,
                               gp = gpar(fontsize = 10, fontface = "bold", col = "grey30"))
   
@@ -726,42 +863,42 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   # Extract the harassment and discrimination questions using the appropriate subindicators (12 and 13)
   sectorHarDis <- questionData %>%
-    filter(SUBINDICATORID %in% c(16,17) & SURVEYR == 2019) %>%
+    filter(SUBINDICATORID %in% c(16,17) & SURVEYR == this_y) %>%
     expand(QUESTION,unitcode) %>%
     left_join(distinct(select(questionData,unitcode,abbr_lang)), by = "unitcode") %>%
     left_join(distinct(select(questionData,QUESTION,TITLE_lang)), by = "QUESTION") %>%
-    left_join(filter(questionData, SURVEYR == 2019), by = c("QUESTION","unitcode","abbr_lang","TITLE_lang")) %>%
-    select(QUESTION,TITLE_lang,unitcode,abbr_lang,AGREE,agree_2018,ANSCOUNT) %>%
+    left_join(filter(questionData, SURVEYR == this_y), by = c("QUESTION","unitcode","abbr_lang","TITLE_lang")) %>%
+    select(QUESTION,TITLE_lang,unitcode,abbr_lang,AGREE,agree_last_year,ANSCOUNT) %>%
     #mutate(abbr_lang = ifelse(unitcode == thisUnitcode, thisAbbr, unitcode)) %>%
-    mutate(delta = AGREE - agree_2018) %>%
-    rename(`2018` = agree_2018, `2019` = AGREE)
+    mutate(delta = AGREE - agree_last_year) %>%
+    rename(`2019` = agree_last_year, `2020` = AGREE)
   
   sectorHarDis <- bind_rows(
     questionData %>%
-      filter(QUESTION == "Q58" | str_detect(QUESTION, "Q60"), SURVEYR == 2019) %>%
+      filter(QUESTION == "Q55" | str_detect(QUESTION, "Q57"), SURVEYR == this_y) %>%
       expand(QUESTION,unitcode) %>%
       left_join(distinct(select(questionData,unitcode,abbr_lang)), by = "unitcode") %>%
       left_join(distinct(select(questionData,QUESTION,TITLE_lang)), by = "QUESTION") %>%
-      left_join(filter(questionData, SURVEYR == 2019), by = c("QUESTION","unitcode","abbr_lang","TITLE_lang")) %>%
-      select(QUESTION,TITLE_lang,unitcode,abbr_lang,AGREE,agree_2018,ANSCOUNT) %>%
+      left_join(filter(questionData, SURVEYR == this_y), by = c("QUESTION","unitcode","abbr_lang","TITLE_lang")) %>%
+      select(QUESTION,TITLE_lang,unitcode,abbr_lang,AGREE,agree_last_year,ANSCOUNT) %>%
       group_by(unitcode) %>% 
-      mutate(base_q = AGREE[QUESTION == "Q58"],
+      mutate(base_q = AGREE[QUESTION == "Q55"],
              AGREE = ifelse(base_q == 0, 0, AGREE),
-             delta = AGREE - agree_2018) %>%
-      rename(`2018` = agree_2018, `2019` = AGREE) %>% 
+             delta = AGREE - agree_last_year) %>%
+      rename(`2019` = agree_last_year, `2020` = AGREE) %>% 
       ungroup(),
     questionData %>%
-      filter(QUESTION == "Q66" | str_detect(QUESTION, "Q68"), SURVEYR == 2019) %>%
+      filter(QUESTION == "Q62" | str_detect(QUESTION, "Q64"), SURVEYR == this_y) %>%
       expand(QUESTION,unitcode) %>%
       left_join(distinct(select(questionData,unitcode,abbr_lang)), by = "unitcode") %>%
       left_join(distinct(select(questionData,QUESTION,TITLE_lang)), by = "QUESTION") %>%
-      left_join(filter(questionData, SURVEYR == 2019), by = c("QUESTION","unitcode","abbr_lang","TITLE_lang")) %>%
-      select(QUESTION,TITLE_lang,unitcode,abbr_lang,AGREE,agree_2018,ANSCOUNT) %>%
+      left_join(filter(questionData, SURVEYR == this_y), by = c("QUESTION","unitcode","abbr_lang","TITLE_lang")) %>%
+      select(QUESTION,TITLE_lang,unitcode,abbr_lang,AGREE,agree_last_year,ANSCOUNT) %>%
       group_by(unitcode) %>% 
-      mutate(base_q = AGREE[QUESTION == "Q66"],
+      mutate(base_q = AGREE[QUESTION == "Q62"],
              AGREE = ifelse(base_q == 0, 0, AGREE),
-             delta = AGREE - agree_2018) %>%
-      rename(`2018` = agree_2018, `2019` = AGREE) %>% 
+             delta = AGREE - agree_last_year) %>%
+      rename(`2019` = agree_last_year, `2020` = AGREE) %>% 
       ungroup()
   )
   #mutate(i = row_number()) %>%
@@ -805,8 +942,8 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
                        lang == "F" ~ "*S*")
   
   har_dis <- sectorHarDis %>%
-    filter(QUESTION %in% c("Q58","Q66")) %>%
-    select(QUESTION,abbr_lang,`2018`,`2019`) %>%
+    filter(QUESTION %in% c("Q55","Q62")) %>%
+    select(QUESTION,abbr_lang,`2019`,`2020`) %>%
     gather("SURVEYR","AGREE",-QUESTION,-abbr_lang) %>%
     mutate(AGREE = ifelse(is.na(AGREE),suppressed,AGREE))
   
@@ -816,14 +953,14 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
               aes(linetype = abbr_lang, colour = QUESTION, alpha = abbr_lang), size = 1) +
     scale_colour_manual(values = c("#7fc97f","#beaed4")) +
     scale_alpha_manual(values = c(1,0.5)) +
-    geom_text_repel(data = har_dis %>% filter(SURVEYR == 2018), 
+    geom_text_repel(data = har_dis %>% filter(SURVEYR == last_y), 
                     aes(label = abbr_lang, colour = QUESTION, alpha = abbr_lang), 
                     hjust = 2, 
                     fontface = "bold", 
                     size = 3,
                     nudge_x = -1, 
                     direction = "y") +
-    geom_text_repel(data = har_dis %>% filter(SURVEYR == 2019), 
+    geom_text_repel(data = har_dis %>% filter(SURVEYR == this_y), 
                     aes(label = abbr_lang, colour = QUESTION, alpha = abbr_lang), 
                     hjust = -1, 
                     fontface = "bold", 
@@ -841,22 +978,22 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   # Extract the data on the nature of harassment
   harNatureData <- sectorHarDis %>%
-    filter(startsWith(QUESTION,"Q60")) %>%
+    filter(startsWith(QUESTION,"Q57")) %>%
     mutate(Qshort_lang = word(TITLE_lang,3, sep = fixed('.'))) %>%
-    mutate(`2019` = ifelse(is.na(`2019`),0.5,`2019`)) %>%
-    arrange(`2019`) %>%
+    mutate(`2020` = ifelse(is.na(`2020`),0.5,`2020`)) %>%
+    arrange(`2020`) %>%
     mutate(order = ifelse(unitcode == "dept", row_number(), NA))
   
   # Create the the nature of harassment chart
   harNature.plt <- ggplot(harNatureData, 
                           aes(x=fct_reorder(str_wrap(substr(Qshort_lang,1,30),30),
-                                            order, .fun = max, na.rm = TRUE), y=`2019`)) +
+                                            order, .fun = max, na.rm = TRUE), y=`2020`)) +
     labs(
       x= case_when(lang == "E" ~ "Sectors", lang == "F" ~  "Secteurs"),
       y= case_when(lang == "E" ~ "% answering yes", lang == "F" ~  "% répondant oui")) +
     geom_col(aes(alpha = abbr_lang), fill = "#7fc97f") +
     geom_text(hjust=-0.1, vjust=0.5, size=3, colour="grey30", fontface = "bold", 
-              aes(label=ifelse(`2019` == 0.5,na_text,`2019`), y=0)) +
+              aes(label=ifelse(`2020` == 0.5,na_text,`2020`), y=0)) +
     coord_flip() +
     facet_grid(.~abbr_lang) +
     scale_alpha_manual(values = c(1,.5)) +
@@ -868,22 +1005,22 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   # Extract the data on the type of discrimination
   disTypeData <- sectorHarDis %>%
-    filter(startsWith(QUESTION,"Q68")) %>%
+    filter(startsWith(QUESTION,"Q64")) %>%
     mutate(Qshort_lang = word(TITLE_lang,3, sep = fixed('.'))) %>%
-    mutate(`2019` = ifelse(is.na(`2019`),0.5,`2019`)) %>%
-    arrange(`2019`) %>%
+    mutate(`2020` = ifelse(is.na(`2020`),0.5,`2020`)) %>%
+    arrange(`2020`) %>%
     mutate(order = ifelse(unitcode == "dept", row_number(), NA))
   
   # Create the type of discrimination chart
   disType.plt <- ggplot(disTypeData,
                         aes(x=fct_reorder(str_wrap(substr(Qshort_lang,1,30),30),
-                                          order, .fun = max, na.rm = TRUE), y=`2019`)) +
+                                          order, .fun = max, na.rm = TRUE), y=`2020`)) +
     labs(
       x= case_when(lang == "E" ~ "Sectors", lang == "F" ~  "Secteurs"),
       y= case_when(lang == "E" ~ "% answering yes", lang == "F" ~  "% répondant oui")) +
     geom_col(aes(alpha = abbr_lang), fill = "#beaed4") +
     geom_text(hjust=-0.1, vjust=0.5, size=3, colour="grey30", fontface = "bold", 
-              aes(label=ifelse(`2019` == 0.5,na_text,`2019`), y=0)) +
+              aes(label=ifelse(`2020` == 0.5,na_text,`2020`), y=0)) +
     coord_flip() +
     facet_grid(.~abbr_lang) +
     scale_alpha_manual(values = c(1,.5)) +
@@ -895,14 +1032,14 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
   
   # Create nature of harassment and type of discrimination titles
   harNature.ttl_lang <- case_when(
-    lang == "E" ~ "Nature of Harassment (2019)",
-    lang == "F" ~ "Nature du harcèlement (2019)")
+    lang == "E" ~ "Nature of Harassment (2020)",
+    lang == "F" ~ "Nature du harcèlement (2020)")
   harNature.ttl <- textGrob(harNature.ttl_lang,
                             gp = gpar(fontsize = 10, fontface = "bold", col = "grey30"))
   
   distype.ttl_lang <- case_when(
-    lang == "E" ~ "Type of Discrimination (2019)",
-    lang == "F" ~ "Type de discrimination (2019)")
+    lang == "E" ~ "Type of Discrimination (2020)",
+    lang == "F" ~ "Type de discrimination (2020)")
   disType.ttl <- textGrob(distype.ttl_lang,
                           gp = gpar(fontsize = 10, fontface = "bold", col = "grey30"))
   
@@ -953,7 +1090,7 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
     
     howto.txt <- textGrob(paste0("
 This PSES \"report card\" is made up of panels summarizing
-differences between the 2018 and 2019 PSES and 
+differences between the 2019 and 2020 PSES and 
 between the department's average and the
 ",thisSectorName,".\n",
 "The top-left panel shows differences between groupings of
@@ -1006,7 +1143,7 @@ hjust = 0.5, gp=gpar(fontsize=6, col ="grey30"))
     
     howto.txt <- textGrob(paste0("
 Ce « bulletin » du SAFF se compose de panneaux résumant
-les différences entre le SAFF de 2018 et celui de 2019 
+les différences entre le SAFF de 2019 et celui de 2020 
 et entre la moyenne du ministère et celle du
 ", thisSectorName,".\n ",
 "Le panneau en haut à gauche montre les différences entre les groupes de
@@ -1077,7 +1214,7 @@ hjust = 0.5, gp=gpar(fontsize=6, col ="grey30"))
                                bottom.grb,
                                nrow=2,rel_heights = c(1,20))
   
-  rc_filename <- file.path(main_dir,plot_dir,paste0(ttl_lang,".pdf"))
+  rc_filename <- file.path(plot_dir,paste0(ttl_lang,".pdf"))
   
   # Save the report card into a PDF
   #ggsave(rc_filename, plot = report_card.plt, height = 8.5, width = 14)
@@ -1096,7 +1233,7 @@ hjust = 0.5, gp=gpar(fontsize=6, col ="grey30"))
 # Select all TBS sectors, except CIOB (use OCIO below, CDS (because there is no 2017 comparator) and "I cannot find my sector"
 sectorList <- distinct(score100s, unitcode, DESCRIP_E) %>% filter(!unitcode %in% c("300","301","999")) # Exclude CDS, CIOB and NA
 
-org_list <- ss5_2019 %>% 
+org_list <- pses_this_year %>% 
   distinct(LEVEL1ID, LEVEL2ID, LEVEL3ID, LEVEL4ID, LEVEL5ID)
 
 org_atoms <- bind_rows(
@@ -1115,7 +1252,7 @@ sectorList = org_atoms %>% pull(unitcode)
 
 sectorList = question100s %>% 
   distinct(unitcode,DESCRIP_E) %>% 
-  inner_join(sectors_2018 %>% distinct(DESCRIP_E)) %>% 
+  inner_join(sectors_last_year %>% distinct(DESCRIP_E)) %>% 
   filter(!unitcode %in% c("999","dept")) %>% 
   pull(unitcode)
 
@@ -1146,7 +1283,7 @@ for (i in sectorList) {
   rc_f <- report_card(i, "F", question100s = question100s, score100s = score100s)
   
   # Make bilingual pdf two-pager
-  pdf(file.path(main_dir,plot_dir,rc_filename),height = 8.5, width = 14,
+  pdf(file.path(plot_dir,rc_filename),height = 8.5, width = 14,
       useDingbats=FALSE)
   #pdf(file.path(main_dir,plot_dir,paste0(i," test.pdf")),height = 8.5, width = 14)
   print(rc_e)
@@ -1188,28 +1325,28 @@ for (i in sectorList) {
 #dev.off()
 
 # DFO: CFO - 340
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 340 - Chief Financial Officer.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 340 - Chief Financial Officer.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(340, "E", customAbbr = "CFO", question100s = question100s, score100s = score100s)
 report_card(340, "F", customAbbr = "DPF", question100s = question100s, score100s = score100s)
 dev.off()
 
 # DFO: BPFM - 470
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 470 - NCR HQ and Regions - Budget Planning and Financial Management.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 470 - NCR HQ and Regions - Budget Planning and Financial Management.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(470, "E", customAbbr = "BPFM", question100s = question100s, score100s = score100s)
 report_card(470, "F", customAbbr = "PBGF", question100s = question100s, score100s = score100s)
 dev.off()
 
 # DFO: FMMO - 471
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 471 - Financial and Materiel Management Operations.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 471 - Financial and Materiel Management Operations.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(471, "E", customAbbr = "FMMO", question100s = question100s, score100s = score100s)
 report_card(471, "F", customAbbr = "OFGM", question100s = question100s, score100s = score100s)
 dev.off()
 
 # DFO: PRE - 469
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 469 - Chief Financial Officer's Office and Corporate Planning, Performance, Risk Management and Evaluation.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 469 - Chief Financial Officer's Office and Corporate Planning, Performance, Risk Management and Evaluation.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(469, "E", customAbbr = "CFO-CPPRME", question100s = question100s, score100s = score100s)
 report_card(469, "F", customAbbr = "BDPF-PMRGRE", question100s = question100s, score100s = score100s)
@@ -1219,56 +1356,56 @@ dev.off()
 
 
 # GAC: Department
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - Global Affairs Canada.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - Global Affairs Canada.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card("PS", "E", customAbbr = "PS", question100s = question100s, score100s = score100s)
 report_card("PS", "F", customAbbr = "FP", question100s = question100s, score100s = score100s)
 dev.off()
 
-# GAC: OGM - 215
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 215 - OGM.pdf"),
+# GAC: OGM - 216
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 216 - OGM.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
-report_card(215, "E", customAbbr = "OGM", customName = "OGM - Asia Pacific", question100s = question100s, score100s = score100s)
-report_card(215, "F", customAbbr = "OGM", customName = "OGM - Asie Pacifique", question100s = question100s, score100s = score100s)
+report_card(216, "E", customAbbr = "OGM", customName = "OGM - Asia Pacific", question100s = question100s, score100s = score100s)
+report_card(216, "F", customAbbr = "OGM", customName = "OGM - Asie Pacifique", question100s = question100s, score100s = score100s)
 dev.off()
 
 # GAC: OGM ADM Office, OBMO - 340
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 340 - OGM ADMO & OSD.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 340 - OGM ADMO & OSD.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(340, "E", customAbbr = "ADMO/OSD", customName = "OGM ADM Office / OSD - Southeast Asia", question100s = question100s, score100s = score100s)
 report_card(340, "F", customAbbr = "BSMA/OSD", customName = "OGM Bureau du SMA / OSD - Asie du Sud-Est", question100s = question100s, score100s = score100s)
 dev.off()
 
 # GAC: OPD - 341
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 341 - OPD.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 341 - OPD.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(341, "E", customAbbr = "OPD", customName = "OPD - North Asia & Oceania", question100s = question100s, score100s = score100s)
 report_card(341, "F", customAbbr = "OPD", customName = "OPD - Asie du Nord & Océanie", question100s = question100s, score100s = score100s)
 dev.off()
 
 # GAC: OAD - 342
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 342 - OAD.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 342 - OAD.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(342, "E", customAbbr = "OAD", customName = "OAD - South Asia", question100s = question100s, score100s = score100s)
 report_card(342, "F", customAbbr = "OAD", customName = "OAD - Asie du Sud", question100s = question100s, score100s = score100s)
 dev.off()
 
 # GAC: WGM - 219
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 219 - WGM.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 219 - WGM.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(219, "E", customAbbr = "WGM", customName = "WGM - Sub-Saharan Africa", question100s = question100s, score100s = score100s)
 report_card(219, "F", customAbbr = "WGM", customName = "WGM - Afrique subsaharienne", question100s = question100s, score100s = score100s)
 dev.off()
 
 # GAC: WED - 355
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 355 - WED.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 355 - WED.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(355, "E", customAbbr = "WED", customName = "WED - Southern and Eastern Africa", question100s = question100s, score100s = score100s)
 report_card(355, "F", customAbbr = "WED", customName = "WED - Afrique australe et de l'Est", question100s = question100s, score100s = score100s)
 dev.off()
 
 # GAC: ADMo / WFD / WWD - 354
-pdf(file.path(main_dir,plot_dir,"PSES2019 Report Cards (EN&FR) - 354 - WGM ADMO, WFD & WWD.pdf"),
+pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 354 - WGM ADMO, WFD & WWD.pdf"),
     height = 8.5, width = 14, useDingbats = FALSE)
 report_card(354, "E", customAbbr = "ADMO/WFD/WWD", customName = "WGM ADM Office / WFD - Pan-Africa / WWD - West and Central Africa", question100s = question100s, score100s = score100s)
 report_card(354, "F", customAbbr = "BSMA/WFD/WWD", customName = "Bureau du SMA WGM / WFD - Affaires panafricaines / WWD - Afrique de l'Ouest et du Centre", question100s = question100s, score100s = score100s)
