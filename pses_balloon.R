@@ -31,8 +31,18 @@ org_atoms <- org_list %>%
 #  select(-unitcode)
 
 pses_2020_level2 <- bind_rows(
+  # Part 1: Everything except subset 7 and demographic questions Q121A-K. 
   pses_2020 %>% 
-    filter(level1id == this_dept, subset != "ss7"),
+    filter(level1id == this_dept, subset != "ss7", !str_detect(bycond, "Q121")),
+  # Part 2: Compress Q121A-K into a single demographic question so that the 
+  # non vis-min group is compared to all specific vis-min groups. 
+  pses_2020 %>% 
+    filter(
+      level1id == this_dept, 
+      bycond %>% str_detect("Q121\\w = 1|Q120 = 2")
+    ) %>% 
+    mutate(dem_question = "Q121"),
+  # Part 3: Only level2 groups, which should sum to 100% of the department.
   pses_2020 %>% 
     filter(level1id == this_dept, subset == "ss7") %>% 
     mutate(unitcode = word(bycond, 2, sep = " = ") %>% as.numeric()) %>% 
@@ -40,10 +50,17 @@ pses_2020_level2 <- bind_rows(
     select(-unitcode)
 )
 
-demo_map <- read.csv(
-  file.path(data_dir,"pses_2020_dem_questions.csv"), 
-  encoding = "UTF-8"
-)
+demo_map <- 
+  read.csv(
+    file.path(data_dir,"pses_2020_dem_questions.csv"), 
+    encoding = "UTF-8"
+  ) %>% 
+  # This is the synthetic question added in "Part 2" above.
+  add_row(
+    dem_question = "Q121",
+    dem_question_e = "Visible minority by group",
+    dem_question_f = "Minorité visible par groupe"
+  )
 
 sector_abbr <- pses_2020_level2 %>% 
   filter(level1id == this_dept, dem_question == "org") %>% 

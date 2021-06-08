@@ -1,14 +1,35 @@
 ---
-title: "PSES Demographic Group Counts"
+title: "How do different visible minority groups experience discrimination?"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+## 2020 has thrust racial inequality into the limelight
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+The events of summer 2020 set off by the murder of George Floyd in Minneapolis have thrust the experience of Black and other racialized groups into public consciousness and sparked debate about how to address issues of systemic injustice. Further events over the past months, such as the murder of 8 Asian women in Atlanta, the death of Joyce Echaquan, a 37-year-old Atikamekw woman in Quebec, and the unearthing of over 200 remains near a residential school in Kamloops have also shone a light on the experience of people of Asian descent and Indigenous people. 
+
+## Our government is committed to action
+
+On January 22, 2021, the Clerk of the Privy Council released a *Call to action on anti-racism, equity, and inclusion in the Fderal Public Service*, where he direct senior managers to take immediate actions to appoint, sponsor, support and recruit more employees from these groups and take meaningful steps to address workplace culture around these issues. Of particular note is his commitment to improving our measurement tools:  
+
+> Measuring progress and driving improvements in the employee workplace
+experience by *monitoring disaggregated survey results* and related operational
+data (for example, promotion and mobility rates, tenure) and acting on what
+the results are telling us
+
+## We can do our part at Global Affairs Canada
+
+The release of 2020 Public Service Employee Survey presents us with an opportunity to take a disaggregated view of our results and identify gaps in the experience of racialized employees. 
+
+### Our data
+
+Let's start by loading up our data. We have already done the work of extracting and structuring our data in our `load_pses_2020.R` file. 
 
 ```{r}
 library(tidyverse)
+library(cowplot)
+library(ggrepel)
+library(tidytext)
+library(ggfittext)
 
 source("load_pses_2020.R")
 
@@ -17,27 +38,495 @@ demq_map <- read.csv(
   encoding = "UTF-8"
 )
 
+short_qs <- read_excel(
+  file.path(data_dir, "pses_2020_short_questions.xlsx")
+) %>%  
+  clean_names()
+
 ```
+
+### Defining visible minority groups
+
+One our challenges will be defining our groups. For the purposes of this analysis, we will concentrate on three:
+
+* Black
+* Asian
+* Indigenous
+
+Let's take a look at our demographic data for visible minority groups.
+
+```{r}
+# This is a convenience function for retrieving group counts based on a 
+# demographic question.
+count_dem_group <- function(demq_string = NULL, dept = 14, year = 2020, data = pses_2020) {
+    pses_2020 %>% 
+      filter(
+        level1id == dept,
+        surveyr == year,
+        dem_question %>% str_detect(demq_string)
+      ) %>% 
+      select(dem_question, bycond, demcode, descrip_e, anscount) %>% 
+      group_by(demcode) %>% 
+      slice_max(order_by = anscount, n = 1, with_ties = FALSE) %>% 
+      ungroup()
+}
+
+# Q121 is the demographic question that breaks down the visible minority group
+# into specific groupings. These are derived from the Canadian census.
+count_dem_group("Q121")
+
+```
+
+We can see that there are many more visible minority groups. It may be necessary to collapse them. 
+
+Something to note - look at the `anscount` value. Notice that these are quite a bit lower than the total GAC population. It turns out that "Not Selected" groups represent the visible minority employees who not fall into that group, which means that all of the selected groups added together form the total "Visible Minority" group. For example, "Black" (185) + "Black - Not Selected" (759) = "Visible minority" (944).
+
+We can confirm that by looking at the Visible minority question:
+
+```{r}
+# Q120 is the visible minority question 
+count_dem_group("Q120")
+```
+
+Now that we have an understanding of how these questions work, let's remove all of our "Not selected" groups. 
 
 
 ```{r}
-dem_distribution <- pses_2020 %>%
-  filter(level1id == 14) %>% 
-  drop_na(anscount) %>% 
-  left_join(demq_map) %>% 
-  group_by(bycond) %>% 
-  filter(anscount == max(anscount, na.rm = TRUE)) %>% 
-  ungroup() %>% 
-  distinct(dem_question, bycond, descrip_e, anscount) %>% 
-  group_by(dem_question) %>% 
-  mutate(
-    prop = anscount / sum(anscount),
-    percent = scales::percent(prop, accuracy = 0.1)
-  ) %>% 
-  ungroup() %>% 
-  arrange(dem_question, bycond)
+count_dem_group("Q121") %>% 
+  filter(!descrip_e %>% str_detect("Not selected"))
   
 ```
+This is an improvement, but we don't quite have the categories we are looking for. As we can see, "Black" is its own category, but we have quite a few Asian categories. 
+
+**An aside:** Does it make sense to break down visible minorities in this way? One could argue that Black employees from East Africa, West Africa, and the Americas all have different experiences, in the same way employees with descent from the various locations in Asia may have different experiences. It appears these categories are based on the Canadian census.
+
+We have an important decision to make: how do we construct an "Asian" category from these existing categories? Given that many of the incidents of anti-Asian discrimination seem to target East Asian populations (as opposed to South Asian, East Indian or West Asian), let's use the `demcode` values for Chinese (2045), Filipino (2047), Japanese (2049), Korean (2051) and Southeast Asian (2055). 
+
+We can revisit this definition easily by simply altering our code.
+
+This function we define below will group these categories and perform a weighted average of the question scores.
+
+```{r}
+
+asian_demcodes <- c(
+  Chinese = 2045,
+  Filipino = 2047,
+  Japanese = 2049,
+  Korean = 2051,
+  `Southeast Asian` = 2055
+  )
+
+lump_mean <- function(dim, weight, acc = 0) {
+  new_mean <- weighted.mean(dim, w = weight, na.rm = TRUE) %>% round(acc)
+  res <- ifelse(is.nan(new_mean), NA, new_mean)
+  return(res)
+}  
+
+lump_demcodes <- function(
+  data = NULL, 
+  code_list = asian_demcodes,
+  new_descrip_e = "Asian",
+  new_descrip_f = "Asiatique",
+  new_demcode = 9001,
+  new_dem_q = "Q121x" 
+  ) {
+  new_bycond <- paste0(new_dem_q, " = ", str_sub(new_demcode, -1))
+  lump <- data %>% 
+    filter(demcode %in% c(code_list)) %>% 
+    replace_na(list(anscount = 0)) %>% 
+    group_by(surveyr, level1id, question) %>%
+    summarise(
+      dem_question = new_dem_q,
+      bycond = new_bycond,
+      demcode = new_demcode,
+      descrip_e = new_descrip_e,
+      descrip_f = new_descrip_f,
+      answer1 = lump_mean(answer1, anscount),
+      answer2 = lump_mean(answer2, anscount),
+      answer3 = lump_mean(answer3, anscount),
+      answer4 = lump_mean(answer4, anscount),
+      answer5 = lump_mean(answer5, anscount),
+      answer6 = lump_mean(answer6, anscount),
+      answer7 = lump_mean(answer7, anscount),
+      positive = lump_mean(positive, anscount),
+      neutral = lump_mean(neutral, anscount),
+      negative = lump_mean(negative, anscount),
+      agree = lump_mean(agree, anscount),
+      score5 = lump_mean(score5, anscount, acc = 2),
+      score100 = lump_mean(score100, anscount),
+      #answer1 = weighted.mean(answer1, w = anscount, na.rm = TRUE) %>% round(),
+      #answer2 = weighted.mean(answer2, w = anscount, na.rm = TRUE) %>% round(),
+      #answer3 = weighted.mean(answer3, w = anscount, na.rm = TRUE) %>% round(),
+      #answer4 = weighted.mean(answer4, w = anscount, na.rm = TRUE) %>% round(),
+      #answer5 = weighted.mean(answer5, w = anscount, na.rm = TRUE) %>% round(),
+      #answer6 = weighted.mean(answer6, w = anscount, na.rm = TRUE) %>% round(),
+      #answer7 = weighted.mean(answer7, w = anscount, na.rm = TRUE) %>% round(),
+      #positive = weighted.mean(positive, w = anscount, na.rm = TRUE) %>% round(),
+      #neutral = weighted.mean(neutral, w = anscount, na.rm = TRUE) %>% round(),
+      #negative = weighted.mean(negative, w = anscount, na.rm = TRUE) %>% round(),
+      #agree = weighted.mean(agree, w = anscount, na.rm = TRUE) %>% round(),
+      #score5 = weighted.mean(score5, w = anscount, na.rm = TRUE) %>% round(2),
+      #score100 = weighted.mean(score100, w = anscount, na.rm = TRUE) %>% round(),
+      anscount = sum(anscount, na.rm = TRUE)
+    ) %>% 
+    ungroup() %>% 
+    left_join(data %>% distinct(question, title_e, title_f), by = "question")
+    
+  return(lump)
+}  
+
+pses_2020 %>% 
+  filter(level1id == 14) %>% 
+  lump_demcodes()
+
+```
+We now have a new "Asian" category. We can finally create data frame combining our three categories of interest plus a whole-of-department comparator.
+
+```{r}
+
+bipoc_df <- 
+  bind_rows(
+    # GAC comparator
+    pses_2020 %>% filter(level1id == 14, level2id == 0, dem_question == "none"),
+    # Black employees
+    pses_2020 %>% filter(level1id == 14, demcode == 2043),
+    # Indigenous employees
+    pses_2020 %>% filter(level1id == 14, demcode == 2014),
+    # Asian employees
+    pses_2020 %>% filter(level1id == 14) %>% lump_demcodes() 
+  ) %>% 
+  filter(surveyr %in% c(2019,2020)) %>% 
+  mutate(
+    descrip_e = if_else(dem_question == "none", "GAC", descrip_e) %>% 
+      fct_relevel("Asian", "Black", "Indigenous", "GAC")
+    )
+
+```
+
+Let's quickly take a look at our populations
+
+```{r}
+
+bipoc_df %>% 
+  group_by(descrip_e, surveyr) %>% 
+  slice_max(order_by = anscount, n = 1, with_ties = FALSE) %>% 
+  group_by(surveyr) %>%
+  mutate(
+    prop = anscount / max(anscount),
+    surveyr = as_factor(surveyr)
+  ) %>% 
+  ungroup() %>% 
+  filter(dem_question != "none") %>% 
+  ggplot(aes(x = surveyr, y = prop, group = descrip_e, colour = descrip_e)) +
+  geom_line() +
+  geom_point() +
+  facet_grid(cols = vars(descrip_e)) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0,NA)) +
+  theme_minimal_hgrid() +
+  labs(
+    colour = NULL, x = NULL, y = NULL,
+    title = "% of Global Affairs Canada Employees"
+  )
+
+
+```
+Although rates of these employees are low, Asian and Black employees are growing in proportion by almost half a percentage point. Indigenous employee representation is flat at about 2%.
+
+Now let's look at question involving discrimination and racism.
+
+```{r}
+
+pses_2020 %>% 
+  filter(title_e %>% str_detect("discrim|racism")) %>% 
+  distinct(title_e)
+```
+
+For simplicity, let's start by excluding the more detailed questions about the nature of incidents of discrimination - question 63, 64 and 65 and 66.
+
+```{r, fig.width = 8, fig.height = 10}
+
+bipoc_clrs <- c(
+  viridis::viridis(3, begin = 0.1, end = 0.8), "black"
+)
+
+bipoc_count <- bipoc_df %>% 
+  filter(surveyr == 2020) %>% 
+  group_by(descrip_e) %>% 
+  slice_max(order_by = anscount, n = 1, with_ties = FALSE) %>% 
+  ungroup() %>% 
+  select(descrip_e, max_anscount = anscount)
+
+bipoc_df %>% 
+  filter(
+    title_e %>% str_detect("discrim|racism"),
+    !question %>% str_detect("Q63|Q64|Q65|Q66"),
+    surveyr == 2020
+  ) %>% 
+  left_join(bipoc_count, by = "descrip_e") %>% 
+  mutate(
+    title_e = title_e %>% 
+      str_wrap(40) %>% 
+      str_replace("Question ", "Q"),
+    measure = positive,
+    descrip_e_count = paste0(descrip_e,"\n(n=",max_anscount,")") %>% 
+      fct_reorder(max_anscount)
+  ) %>% 
+  group_by(question) %>% 
+  mutate(
+    dept_mean = measure[descrip_e == "GAC"],
+    dept_delta = measure - dept_mean
+  ) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = descrip_e_count)) +
+  geom_hline(aes(yintercept = 0)) +
+  geom_segment(aes(y = dept_delta, xend = descrip_e_count, yend = 0)) +
+  geom_point(aes(y = dept_delta, colour = descrip_e_count), size = 8) +
+  geom_text(
+    aes(y = dept_delta, label = measure), 
+    colour = "white", fontface = "bold", hjust = 0.5, vjust = 0.5
+  ) +
+  facet_grid(rows = vars(title_e), switch = "y") +
+  scale_y_continuous(limits = c(-30, 30)) +
+  scale_x_discrete(position = "top") +
+  scale_color_manual(values = bipoc_clrs) +
+  theme_minimal_hgrid() +
+  labs(
+    colour = NULL, x = NULL, y = NULL,
+    title = "Percentage of Positive Responses"
+  ) +
+  coord_cartesian(clip = "off") +
+  theme(
+    strip.text.y.left = element_text(angle = 0, hjust = 0),
+    strip.placement = "outside",
+    legend.position = "none",
+    plot.title.position = "plot"
+  )
+  
+```
+
+A second version
+
+```{r, fig.width = 10, fig.height = 6.5}
+
+bipoc_count <- bipoc_df %>% 
+  filter(surveyr == 2020) %>% 
+  group_by(descrip_e) %>% 
+  slice_max(order_by = anscount, n = 1, with_ties = FALSE) %>% 
+  ungroup() %>% 
+  select(descrip_e, max_anscount = anscount)
+
+plot_df <- bipoc_df %>% 
+  filter(
+    title_e %>% str_detect("discrim|racism"),
+    !question %>% str_detect("Q63|Q64|Q65|Q66|Q69"),
+    surveyr == 2020
+  ) %>% 
+  left_join(bipoc_count, by = "descrip_e") %>% 
+  mutate(
+    measure = positive,
+    title_e = title_e %>% 
+      str_wrap(60) %>% 
+      str_replace("Question ", "Q") %>% 
+      fct_reorder(desc(measure)),
+    descrip_e_count = paste0(descrip_e,"\n(n=",max_anscount,")") %>% 
+      fct_reorder(measure)
+  ) %>% 
+  group_by(question) %>% 
+  mutate(
+    dept_mean = measure[descrip_e == "GAC"],
+    dept_delta = measure - dept_mean
+  ) %>% 
+  ungroup()
+
+bipoc_clrs <- c(
+  viridis::viridis(3, begin = 0.2, end = 0.8), "black"
+) %>%
+  set_names(
+    plot_df %>%
+      arrange(desc(demcode)) %>% 
+      distinct(descrip_e_count) %>%
+      pull()
+  )
+
+bipoc_shp <- c(rep(19,3), 21) %>%
+  set_names(
+    plot_df %>%
+      arrange(desc(demcode)) %>% 
+      distinct(descrip_e_count) %>%
+      pull()
+  )
+  
+ggplot(plot_df, aes(x = measure, y = title_e)) +
+  #geom_line(aes(group = descrip_e_count, colour = descrip_e_count), alpha = 0.5) +
+  geom_line(aes(group = title_e), size = 1, colour = "grey50") +
+  geom_text_repel(
+    aes(label = measure), 
+    direction = "y",
+    size = 4.5, colour = "grey20"
+  ) +
+  geom_point(aes(colour = descrip_e_count, shape = descrip_e_count), fill = "white", size = 3) +
+  scale_x_continuous(position = "top", limits= c(0,100), breaks = c(0, 50, 100)) +
+  scale_y_discrete( ) +
+  scale_color_manual(values = bipoc_clrs) +
+  scale_shape_manual(values = bipoc_shp) +
+  labs(
+    colour = NULL, x = NULL, y = NULL, shape = NULL,
+    title = "Black employees believe GAC isn't doing enough to address racism",
+    subtitle = "Percentage of positive responses to questions on discrimination and racism. Sorted from least to most positive.\nAsian comprises employees identifying as Chinese, Filipino, Japanese, Korean or Southeast Asian.",
+    caption = "Source: 2020 Public Service Employee Survey (https://open.canada.ca)"
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_minimal_grid() +
+  theme(
+    axis.text.y = element_text(hjust = 0, size = 11),
+    axis.text.x = element_text(colour = "grey60"),
+    strip.placement = "outside",
+    legend.position = "top",
+    plot.title.position = "plot"
+  )
+  
+ggsave2(file.path(plot_dir, "PSES2020@GAC - BIPOCs on discrimination and racsim.png"))
+```
+
+The findings are striking. Asian and, especially, Black employees are much less likely to answer positively on questions relating to discrimination and racism. Interestingly, Indigenous employees are generally as positive or more than the GAC average.
+
+Let's dig a bit deeper and look at specific cases of discrimination among groups.
+
+```{r, fig.width = 12, fig.height = 12}
+
+bipoc_count <- bipoc_df %>% 
+  filter(surveyr == 2020) %>% 
+  group_by(descrip_e) %>% 
+  slice_max(order_by = anscount, n = 1, with_ties = FALSE) %>% 
+  ungroup() %>% 
+  select(descrip_e, max_anscount = anscount)
+
+meta_q_short <- bipoc_df %>% 
+  filter(question %>% str_detect("Q63|Q64|Q65")) %>%
+  transmute(
+    meta_q = question %>% str_sub(1,3),
+    meta_q_short_e = case_when(
+      meta_q == "Q63" ~ "Q63. Source",
+      meta_q == "Q64" ~ "Q64. Type",
+      meta_q == "Q65" ~ "Q65. Action"
+    )
+  ) %>% 
+  distinct()
+
+plot_df <- bipoc_df %>% 
+  filter(
+    question %>% str_detect("Q62|Q63|Q64|Q65|Q66|Q69")
+  ) %>% 
+  left_join(bipoc_count, by = "descrip_e") %>% 
+  mutate(
+    measure = agree,
+    meta_q = question %>% str_sub(1,3),
+    meta_q_e = paste0( 
+      question %>% str_sub(1,3),
+      title_e %>% 
+      str_extract("\\.[^\\?\\.]*[\\?\\.]")
+      ) %>% 
+      str_wrap(20),
+    meta_q_e_loc = str_locate(
+      title_e, 
+      title_e %>% str_extract("\\.[^\\?\\.]*[\\?\\.]")
+      )[,2],
+    sub_q_e = title_e %>% str_extract("[^\\d][^\\d][\\.\\?].*$") %>% 
+      str_sub(5) %>% 
+      str_wrap(25),
+    #sub_q = str_sub(title_e, meta_q_loc + 2) %>% str_trim(),
+    title_e = title_e %>% 
+      str_replace("Question ", "Q") %>%
+      str_wrap(60) %>% 
+      fct_reorder(desc(max_anscount)),
+    bipoc_group = paste0(descrip_e,"\n(n=",max_anscount,")") %>% 
+      fct_reorder(max_anscount),
+    descrip_e = descrip_e %>% fct_reorder(max_anscount), 
+    measure = ifelse(is.nan(measure), NA, measure)
+  ) %>% 
+  left_join(meta_q_short, by = "meta_q")
+
+bipoc_clrs <- c(
+  viridis::viridis(3, begin = 0.2, end = 0.8), "black"
+) %>%
+  set_names(
+    plot_df %>%
+      arrange(desc(demcode)) %>% 
+      distinct(bipoc_group) %>%
+      pull()
+  )
+
+
+
+p1 <- plot_df %>%
+  filter(question == "Q62") %>% 
+  mutate(surveyr = as_factor(surveyr)) %>% 
+  ggplot(aes(x = surveyr, y = measure, group = bipoc_group, colour = bipoc_group)) +
+  geom_line(size = 1) +
+  geom_point(size = 10) +
+  geom_text(aes(label = agree), colour = "white", fontface = "bold", size = 5) +
+  facet_grid(cols = vars(bipoc_group), switch = "y") +
+  scale_y_continuous(limits = c(0,NA)) +
+  scale_colour_manual(values = bipoc_clrs) +
+  labs(
+    title = "Black employees are more likely to suffer discrimination and less likely to report it",
+    subtitle = "Victims of discrimination by group (in %) and source, type of and action taken by them (in %).\nAsian comprises employees identifying as Chinese, Filipino, Japanese, Korean or Southeast Asian.",
+    x = NULL, y = NULL
+  ) +
+  coord_cartesian(clip = "off") +
+  theme_minimal_vgrid() +
+  theme(
+    axis.line.y = element_blank(),
+    axis.text.y = element_blank(),
+    strip.placement = "outside",
+    strip.text.y.left = element_text(angle = 0),
+    legend.position = "none",
+    plot.title.position = "plot"
+  )
+
+no_data <- textGrob("No data")
+p2a <- plot_grid(no_data, no_data, no_data, nrow = 3)
+
+p2b <- plot_df %>% 
+  filter(question %>% str_detect("Q63|Q64|Q65"), surveyr == 2020) %>% 
+  group_by(descrip_e, meta_q_e) %>% 
+  slice_max(order_by = measure, n = 3, with_ties = FALSE) %>% 
+  ungroup() %>% 
+  #replace_na(list(measure = 0)) %>% 
+  filter(measure != 0, !is.na(measure)) %>%  
+  mutate(sub_q_e = sub_q_e %>% reorder_within(by = measure, within = descrip_e)) %>% 
+  ggplot(aes(x = measure, y = sub_q_e, fill = descrip_e)) +
+  geom_col(width = 0.5) +
+  geom_bar_text(aes(label = paste0(measure,"%")), min.size = 10, fontface = "bold") +
+  facet_wrap(vars(meta_q_short_e, descrip_e), ncol = 3, scales = "free_y") +
+  scale_y_reordered() +
+  scale_fill_manual(values = 
+                      c(viridis::viridis(3, begin = 0.2, end = 0.8), "black") %>%
+                      set_names("Asian", "Black", "Indigenous", "GAC")
+  ) +
+  labs(
+    caption = "Source: 2020 Public Service Employee Survey (https://open.canada.ca)",
+    x = NULL, y = NULL
+  ) +
+  theme_minimal_vgrid() +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.y = element_text(hjust  = 0),
+    axis.text.x = element_blank(),
+    axis.line.x = element_blank(),
+    strip.placement = "outside",
+    strip.text.y.left = element_text(angle = 0),
+    legend.position = "none",
+    plot.title.position = "plot"
+  )
+
+p2 <- plot_grid(p2a, p2b, nrow = 1, rel_widths = c(1,3))
+
+plot_grid(p1, p2, ncol = 1, align = "hv", axis = "l", rel_heights = c(1,3))
+
+ggsave2(file.path(plot_dir,"PSES2020@GAC - BIPOC Discrimination.png"))
+```
+
 
 ```{r}
 

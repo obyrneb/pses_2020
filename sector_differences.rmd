@@ -9,7 +9,7 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 
 ```{r setup}
 
-source("pses2018.R")
+source("pses2020.R")
 
 library(tidyverse)
 library(cowplot)
@@ -18,25 +18,34 @@ library(cowplot)
 
 ```{r Sector line graph, fig.height= 6, fig.width=18.5 }
 
-#this_unitcode <- 312
+#this_unitcode <- 342
 
-sector_list <- c(315, 301, 322, 323, 302, 303, 304, 305,
-                 321, 308, 316, 310, 324, 319, 309, 318,
-                 311, 312, 325, 313, 317) 
-this_deptcode <- 2
-this_dept_e <- "ESDC"
-this_dept_f <- "EDSC"
+this_deptcode <- 14
+this_dept_e <- "GAC"
+this_dept_f <- "AMC"
 lang = "e"
+
+pses_org <- read.csv(file.path(data_dir,"subset-7-sous-ensemble-7-1.csv"), na.strings = "9999") %>% 
+  filter(LEVEL1ID %in% c(0,this_deptcode))
+
+sector_list <- c(216, 340, 341, 342) 
+
 
 for (this_unitcode in sector_list) {
 
-  sector_qs <- pses2018 %>% 
+  sector_qs <- pses_org %>% 
     filter(LEVEL1ID %in% c(0,this_deptcode), 
-           DemoQ %in% c("org","dept"),
-           SURVEYR == 2018) %>%
-    mutate(unitcode = ifelse(is.na(BYCOND),
+           SURVEYR == 2020) %>%
+    mutate(unitcode = ifelse(BYCOND == " ",
                              LEVEL1ID,
-                             word(BYCOND, 2, sep = " = "))) #%>%
+                             word(BYCOND, 2, sep = " = "))) %>% 
+    rename(INDICATOR_E = INDICATORENG,
+         INDICATOR_F = INDICATORFRA,
+         SUBINDICATOR_E = SUBINDICATORENG,
+         SUBINDICATOR_F = SUBINDICATORFRA) %>% 
+    mutate(INDICATOR_E = ifelse(INDICATOR_E == "COMPENSATION", "COMP.", INDICATOR_E))
+    
+    #%>%
   #filter(unitcode %in% c(000,026,203,300,301,302,400,401,402,403,404,405,406,407,408,305,306,307,308,309,310,311,312,313,314,315))
   
   subttl_width <- 200
@@ -49,24 +58,24 @@ for (this_unitcode in sector_list) {
             f = filter(sector_qs, unitcode == this_deptcode) %>% pull(DESCRIP_F) %>% pluck(1))
   other_sectors <- c(e = "Other Sectors",
                      f = "Autres secteurs")
-  ttl <- c(e = paste0("PSES 2018 - Comparison of ",this_sector[["e"]]," and ",dept[["e"]]),
-           f = paste0("SAFF 2018 - Comparaison de ",this_sector[["f"]]," et ",dept[["f"]]))
+  ttl <- c(e = paste0("PSES 2020 - Comparison of ",this_sector[["e"]]," and ",dept[["e"]]),
+           f = paste0("SAFF 2020 - Comparaison de ",this_sector[["f"]]," et ",dept[["f"]]))
   subttl <- c(e = str_wrap(paste0("The top graph displays the \"Score 100\" for all sectors, the department and the Public Service. The bottom graph displays the positive and negative differences between ",dept[["e"]]," scores (flat line) and ",this_sector[["e"]]," scores."), width = subttl_width),
               f = str_wrap(paste0("Le graphique du haut affiche les « scores 100 » pour tous les secteurs, le ministère et la fonction publique. Le graphique du bas affiche les différences positives et négatives entre les scores de ",dept[["f"]]," (ligne plate) et les scores de ",this_sector[["f"]],"."), width = subttl_width))
   x_dim <- c(e = "Public Service Employee Survey questions",
              f = "Questions du Sondage auprès des fonctionnaires fédéraux")
   y_dim <- c(e = "Score 100",
              f = "Score 100")
-  filename <- c(e = paste0("PSES2018@",this_dept_e,
+  filename <- c(e = paste0("PSES2020@",this_dept_e,
                            " - Sector Line Chart - ",
                            this_unitcode," - ",
                            str_replace_all(this_sector[[lang]], "\\\\|/", ";"),
-                           ".svg"),
-                f = paste0("SAFF2018@",this_dept_f,
+                           ".png"),
+                f = paste0("SAFF2020@",this_dept_f,
                            " - Graphique linéaire des secteurs - ",
                            this_unitcode," - ",
                            str_replace_all(this_sector[[lang]], "\\\\|/", ";"),
-                           ".svg"))
+                           ".png"))
   
   
   sector_qs <- sector_qs %>% 
@@ -78,7 +87,6 @@ for (this_unitcode in sector_list) {
     )) %>% 
     select(QUESTION,SCORE100, highlight,
            DESCRIP_E,DESCRIP_F,unitcode,BYCOND,
-           DemoQ,DemoQ_E,DemoQ_F,
            INDICATORID,INDICATOR_E,INDICATOR_F) %>%
     arrange(desc(DESCRIP_E),desc(SCORE100)) %>%
     mutate(QUESTION = str_sub(QUESTION, start = 2)) %>% 
@@ -125,29 +133,32 @@ for (this_unitcode in sector_list) {
          subtitle = subttl[[lang]],
          x = x_dim[[lang]], 
          y = y_dim[[lang]]) +
-    scale_y_continuous(breaks = c(-5,0,5,25,50,75,100)) +
+    scale_y_continuous(breaks = c(-10,0,10,25,50,75,100)) +
     facet_grid(cols = vars(!!indicator_lang), #rows = vars(DemoQ_E),
                scales = "free", space = "free",
                labeller = label_wrap_gen(18)) +
     theme_classic() +
-    theme(legend.position = "top",#c(.105,.35),
-          legend.background = element_rect(fill = alpha("white",0.6)),
-          #legend.box.background = element_rect(fill = alpha("white",0.4)),
-          line = element_line(colour = "grey30"),
-          text = element_text(colour = "grey30"),
-          axis.text.x = element_text(angle = 90, vjust = 0.5),
-          axis.text.y = element_text(angle = 90, hjust = 0.5),
-          #panel.background = element_rect(fill = NA, colour = "black"),
-          #strip.background = element_rect(colour = NA, fill = "grey90"),
-          strip.background = element_blank(),
-          strip.text = element_text(size = 8),
-          axis.title = element_text(size = 10))
+    theme(
+      legend.position = "top",#c(.105,.35),
+      legend.background = element_rect(fill = alpha("white",0.6)),
+      panel.grid.major.y = element_line(colour = "grey90"),
+      #legend.box.background = element_rect(fill = alpha("white",0.4)),
+      line = element_line(colour = "grey30"),
+      text = element_text(colour = "grey30"),
+      axis.text.x = element_text(angle = 90, vjust = 0.5),
+      axis.text.y = element_text(angle = 90, hjust = 0.5),
+      #panel.background = element_rect(fill = NA, colour = "black"),
+      #strip.background = element_rect(colour = NA, fill = "grey90"),
+      strip.background = element_blank(),
+      strip.text = element_text(size = 8),
+      axis.title = element_text(size = 10)
+    )
   #axis.title.x = element_blank())
   
   line_plot
   
   
-  ggsave(file.path(mainDir,plotDir,filename[[lang]]),
+  ggsave(file.path("plots",filename[[lang]]),
          plot = line_plot, height = 6, width = 18.5)
   
 }
