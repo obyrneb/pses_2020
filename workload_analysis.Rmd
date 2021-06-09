@@ -1,0 +1,307 @@
+---
+title: "Workload Analysis"
+output: html_notebook
+---
+
+## Workload in the age of COVID
+
+Anecdotally, workload has been high for geographic branches within Global Affairs Canada as it wrestled with the ffects of a worldwide pandemic over most of 2020 and into 2021. Missions were particularly affected by repariation efforts and other elements of pandemic response, while HG staff provided support.
+
+The 2020 Public Service Employee Survey provides us with an opportunity to look at how this has affected staff as of autumn 2020 - well into the second phase of the pandemic.
+
+## Geograpic Branches vs the Rest of Global affairs Canada
+
+Let us start by looking at how different geographic brancehs have done of workload-realted questions compared to toher branches.
+
+### Loading our data
+
+As usual, we start with loading our PSES data and a few packages.
+
+```{r}
+library(tidyverse)
+library(cowplot)
+library(readxl)
+library(ggrepel)
+library(tidymodels)
+library(tidybayes)
+
+source("load_pses_2020.R")
+
+short_qs <- short_qs <- read_excel(file.path(data_dir,"pses_2020_short_questions.xlsx")) 
+
+# Our department code (14 for Global Affairs Canada)
+this_dept <-  14
+
+```
+
+### The right questions
+
+Workload is a nebulous concept. There are many dimensions we coudl choose to look at. Let's start by seeing what the PSES can provide.
+
+```{r}
+pses_2020 %>% 
+  filter(title_e %>% str_detect("workload|work hours|more work")) %>% 
+  distinct(question, title_e)
+```
+This seems like a good start - 6 questions. We will exclude the COVID-specific questions for now.
+
+```{r}
+workload_qs <- c("Q17", "Q18e", "Q70c", "Q70f")
+```
+
+
+### Meaningful comparisons
+
+The art of data visualization is based on making meaningful comparisons. How can we meaningfully compare the workload burden of geographic branches? We can start by doing both a within-group and out-of-group comparison. 
+
+Let's identify our branches.
+
+```{r}
+pses_2020 %>% 
+  filter(level1id == 14, level2id != 999, level3id == 0, subset == "ss7") %>% 
+  distinct(descrip_e)
+```
+
+
+
+```{r, fig.width = 9, fig.height = 5}
+
+workload_df <- pses_2020 %>% 
+  filter(
+    # Start by selecting only our level2 orgs - these are the branches at GAC
+    level1id == 14, level2id != 999, level3id == 0, subset == "ss7",
+    # Keep only workload questions
+    question %in% workload_qs   
+    ) %>%
+  # Get our short questions. This helps with space!
+  left_join(short_qs %>% select(question, q_short_e), by = "question") %>% 
+  mutate(
+    # Identify our geo branches (those that end with "GM")
+    geo = case_when(
+      descrip_e %>% str_detect("^\\wGM") ~ "Geo",
+      level2id == 0 ~ "GAC",
+      TRUE ~ "Not Geo"
+    ),
+    branch = case_when(
+      level2id == 0 ~ "GAC",
+      TRUE ~ descrip_e %>% str_sub(1,3)
+    ) %>% fct_inorder() %>% fct_rev(),
+    q_display = paste0(question, ". ", q_short_e) %>%
+      str_wrap(25) %>%
+      fct_reorder(positive)
+  )
+
+branch_clrs <- c(
+   "black",
+  viridis::viridis(4, begin = 0.2, end = 0.8)
+) %>%
+  set_names(
+    workload_df %>%
+      filter(geo != "Not Geo") %>% 
+      distinct(branch) %>%
+      pull()
+  )
+
+ggplot(mapping = aes(x = q_display, y = positive)) +
+  geom_point(
+    data = workload_df %>% filter(geo == "Not Geo"),
+    colour = "grey80", alpha = 0.7
+    ) +
+  geom_line(
+    data = workload_df %>% filter(geo == "Not Geo"),
+    aes(group = branch),
+    colour = "grey80", alpha = 0.5,
+    orientation = "x", size = 1
+  ) +
+  geom_text_repel(
+    data = workload_df %>% filter(question == "Q70f", geo != "Not Geo"),
+    aes(label = branch, colour = branch, fontface = "bold"),
+    direction = "y",
+    nudge_x = 0.3
+  ) +
+  geom_point(
+    data = workload_df %>% filter(geo != "Not Geo"),
+    aes(colour = branch)
+    ) +
+  geom_line(
+    data = workload_df %>% filter(geo != "Not Geo"),
+    aes(group = branch, colour = branch),
+    orientation = "x", alpha = 0.7, size = 1
+  ) +
+  scale_colour_manual(values = branch_clrs) +
+  scale_y_continuous(limits = c(0,100), breaks = c(0,50,100)) +
+  labs(
+    title = "Geographic branches are less positive on workload questions",
+    subtitle = "Percentage of positive responses to selected workload questions from PSES 2020.",
+    caption = "Source: 2020 Public Service Employee Survey (https://open.canada.ca)",
+    colour = NULL, x = NULL, y = NULL
+    ) +
+  theme_minimal_hgrid() +
+  theme(
+    legend.position = "none",
+    axis.line.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+  
+ggsave(file.path(plot_dir,"PSES2020@GAC - Geographic Branches and Workload.png"))
+```
+
+We can also plot a regression.
+
+
+```{r}
+
+model_branch <- function(df = workload_df, q = NULL) {
+
+#df = workload_df
+#q = "Q70f"
+
+#n_df <- df %>% 
+#  filter(ee_dimension == ee_dim, seniority == level) %>%
+#  count(ee_class)
+
+log_mod <- logistic_reg() %>%
+  set_engine("stan", cores = 24) %>% 
+  set_mode("classification")
+
+log_df <- df %>% 
+  filter(question == q, geo != "GAC") %>%
+  mutate(not_positive = 100 - positive) %>% 
+  select(question, q_short_e, branch, geo, positive, not_positive, anscount) %>% 
+  pivot_longer(
+    cols = c(positive, not_positive), 
+    names_to = "response", 
+    values_to = "prop"
+  ) %>% 
+  mutate(count = round(prop/100 * anscount)) %>% 
+  uncount(weights = count) %>% 
+  mutate(
+    geo = fct_drop(geo),
+    branch = fct_drop(branch),
+    response = as_factor(response)
+  )
+
+mult_fit <- log_mod %>%
+  fit(
+    response ~ geo + branch, 
+    data = log_df
+  ) 
+
+saveRDS(mult_fit, file = file.path(output_dir, paste0("branch_workload_", "q",".rds")))
+#broom.mixed::tidy(
+#  mult_fit,
+#  conf.int = TRUE,
+#  conf.level = 0.8,
+#  conf.method = "HPDinterval"
+#)
+
+branch_values <- log_df %>% 
+  distinct(question, q_short_e, geo, branch)
+
+
+branch_pred <- 
+  bind_cols(
+    branch_values,
+    predict(mult_fit, new_data = branch_values, type = "prob"),
+    predict(mult_fit, new_data = branch_values, type = "conf_int", std_error = TRUE)
+  ) %>% 
+  clean_names() %>% 
+  #rename(
+  #  target_level = `.Pred_Target level`,
+  #  not_target_level = `.Pred_Not target level`,
+  #) %>% 
+  #left_join(n_df, by = "ee_class") %>% 
+  #left_join(ee_class_map %>% distinct(ee_class, ee_order), by = "ee_class") %>%
+  mutate(
+    branch = branch %>% fct_reorder(pred_positive),
+  )
+  
+plot <- 
+  ggplot(
+    data = branch_pred, 
+    aes(x = pred_positive, y = branch)
+  ) +
+  geom_errorbar(
+    aes(
+      xmin = pred_lower_positive,
+      xmax = pred_upper_positive,
+      colour = geo
+    ),
+    alpha = 0.4, size = 1, width = 0.1
+  ) +
+  geom_line(aes(color = geo)) +
+  geom_point(aes(color = geo)) +
+  labs(
+    title = log_df$q_short_e[log_df$question == q] %>% str_wrap(50),
+    y = NULL, x = NULL,
+    colour = NULL, fill = NULL
+  ) +
+  #coord_flip() +
+  scale_color_viridis_d(end = 0.6, aesthetics = c("colour", "fill")) +
+  scale_x_continuous(limits = c(0,1), labels = percent_format()) +
+  theme_minimal_grid() +
+  theme(
+    legend.position = "top",
+    axis.ticks = element_line()
+  )
+
+return(plot)
+
+}
+
+plot_q17 <- model_branch(q = "Q17")
+plot_q18e <- model_branch(q = "Q18e")
+plot_q70c <- model_branch(q = "Q70c")
+plot_q70f <- model_branch(q = "Q70f")
+
+
+```
+
+```{r, fig.width=14, fig.height=10}
+
+plot_row <- plot_grid(plot_q17, plot_q18e, plot_q70c, plot_q70f, nrow = 2)
+
+title <- ggdraw() + 
+  draw_label(
+    paste0("Effect of Branch on Perception of Workload"),
+    fontface = 'bold',
+    size = 18,
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+subtitle <- ggdraw() + 
+  draw_label(
+    "Predicted probability of positive responses based on Bayesian logistical regression on branch and geographic status. The errorbars display the 90% credible interval.",
+    size = 12,
+    x = 0,
+    hjust = 0
+  ) +
+  theme(
+    # add margin on the left of the drawing canvas,
+    # so title is aligned with left edge of first plot
+    plot.margin = margin(0, 0, 0, 7)
+  )
+
+plot <- plot_grid(
+  title, subtitle, plot_row,
+  ncol = 1,
+  # rel_heights values control vertical title margins
+  rel_heights = c(0.05, 0.05, 1)
+)
+
+ggsave2(
+  plot = plot,
+  file.path("plots", paste0("PSES2020@GAC - Effect of Branch on Perception of Workload.png")), 
+  width = 14, height = 10
+)
+
+
+```
+
+
