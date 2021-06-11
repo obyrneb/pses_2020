@@ -694,7 +694,8 @@ report_card <- function(thisUnitcode, lang, customName = NULL, customAbbr = NULL
                         guide = FALSE) +
     scale_shape_manual(name = NULL, 
                        values = c(a_shp = 19, b_shp = 21, c_shp  = 17, d_shp = 18),
-                       labels = c(thisAbbr, dept_abbr, ps_name, other_name)) +
+                       labels = c(thisAbbr, dept_abbr, ps_name, other_name),
+                       guide = guide_legend(override.aes = list(colour = "grey50") )) +
     scale_y_continuous(limits = c(0,100), breaks = c(0,25,50,75,100), expand = expand_scale(add = c(0,5))) +
     deltaTheme +
     theme(strip.text = element_text(size = 8, colour = "grey40", face = "bold"),
@@ -1363,54 +1364,7 @@ report_card("PS", "E", customAbbr = "PS", question100s = question100s, score100s
 report_card("PS", "F", customAbbr = "FP", question100s = question100s, score100s = score100s)
 dev.off()
 
-# GAC: OGM - 216
-pdf(file.path(plot_dir,"PSES2020 Report Cards (EN&FR) - 216 - OGM.pdf"),
-    height = 8.5, width = 14, useDingbats = FALSE)
-report_card(216, "E", customAbbr = "OGM", customName = "OGM - Asia Pacific", question100s = question100s, score100s = score100s)
-report_card(216, "F", customAbbr = "OGM", customName = "OGM - Asie Pacifique", question100s = question100s, score100s = score100s)
-dev.off()
-
-# GAC: OGM ADM Office, OBMO - 340
-pdf(file.path(plot_dir,"PSES2020 Report Cards (EN&FR) - 340 - OGM ADMO & OSD.pdf"),
-    height = 8.5, width = 14, useDingbats = FALSE)
-report_card(340, "E", customAbbr = "ADMO/OSD", customName = "OGM ADM Office / OSD - Southeast Asia", question100s = question100s, score100s = score100s)
-report_card(340, "F", customAbbr = "BSMA/OSD", customName = "OGM Bureau du SMA / OSD - Asie du Sud-Est", question100s = question100s, score100s = score100s)
-dev.off()
-
-# GAC: OPD - 341
-pdf(file.path(plot_dir,"PSES2020 Report Cards (EN&FR) - 341 - OPD.pdf"),
-    height = 8.5, width = 14, useDingbats = FALSE)
-report_card(341, "E", customAbbr = "OPD", customName = "OPD - North Asia & Oceania", question100s = question100s, score100s = score100s)
-report_card(341, "F", customAbbr = "OPD", customName = "OPD - Asie du Nord & Océanie", question100s = question100s, score100s = score100s)
-dev.off()
-
-# GAC: OAD - 342
-pdf(file.path(plot_dir,"PSES2020 Report Cards (EN&FR) - 342 - OAD.pdf"),
-    height = 8.5, width = 14, useDingbats = FALSE)
-report_card(342, "E", customAbbr = "OAD", customName = "OAD - South Asia", question100s = question100s, score100s = score100s)
-report_card(342, "F", customAbbr = "OAD", customName = "OAD - Asie du Sud", question100s = question100s, score100s = score100s)
-dev.off()
-
-# GAC: WGM - 220
-pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 220 - WGM.pdf"),
-    height = 8.5, width = 14, useDingbats = FALSE)
-report_card(220, "E", customAbbr = "WGM", customName = "WGM - Sub-Saharan Africa", question100s = question100s, score100s = score100s)
-report_card(220, "F", customAbbr = "WGM", customName = "WGM - Afrique subsaharienne", question100s = question100s, score100s = score100s)
-dev.off()
-
-# GAC: EGM - 206
-pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 206 - EGM.pdf"),
-    height = 8.5, width = 14, useDingbats = FALSE)
-report_card(206, "E", customAbbr = "EGM", customName = "EGM - Europe, Arctic, Middle East and Maghreb", question100s = question100s, score100s = score100s)
-report_card(206, "F", customAbbr = "EGM", customName = "EGM - Europe, Arctique, Moyen-Orient et Maghreb", question100s = question100s, score100s = score100s)
-dev.off()
-
-# GAC: NGM - 215
-pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 215 - NGM.pdf"),
-    height = 8.5, width = 14, useDingbats = FALSE)
-report_card(215, "E", customAbbr = "NGM", customName = "NGM - Americas", question100s = question100s, score100s = score100s)
-report_card(215, "F", customAbbr = "NGM", customName = "NGM - Amériques", question100s = question100s, score100s = score100s)
-dev.off()
+ 
 
 # GAC: WED - 355
 pdf(file.path(plot_dir,"PSES2019 Report Cards (EN&FR) - 355 - WED.pdf"),
